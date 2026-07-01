@@ -29,7 +29,6 @@ tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 window-vibrancy = "0.5"
-midir = "0.10"
 objc = "0.2"
 cocoa = "0.25"
 tauri-plugin-process = "2"
@@ -40,3 +39,16 @@ tar = "0.4"
 zip = "2"
 futures-util = "0.3"
 rodio = "0.22.2"
+
+# gate midir for macOS so it safely uses coremidi
+[target.'cfg(target_os = "macos")'.dependencies]
+midir = "0.10.4"
+
+# gate midir for Linux so it safely uses ALSA
+[target.'cfg(target_os = "linux")'.dependencies]
+midir = "0.10.4"
+
+# configure midir for Windows to use its native WinMM fallback backend
+[target.'cfg(target_os = "windows")'.dependencies]
+midir = { version = "0.10.4", default-features = false, features = ["winmm"] }
+
