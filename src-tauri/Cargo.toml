@@ -40,15 +40,16 @@ zip = "2"
 futures-util = "0.3"
 rodio = "0.22.2"
 
-# gate midir for macOS so it safely uses coremidi
+# 1. Gate midir cleanly for macOS
 [target.'cfg(target_os = "macos")'.dependencies]
 midir = "0.10.4"
 
-# gate midir for Linux so it safely uses ALSA
+# 2. Gate midir cleanly for Linux
 [target.'cfg(target_os = "linux")'.dependencies]
 midir = "0.10.4"
 
-# configure midir for Windows to use its native WinMM fallback backend
-[target.'cfg(target_os = "windows")'.dependencies]
-midir = { version = "0.10.4", default-features = false, features = ["winmm"] }
-
+# 3. Gate midir for Windows and strictly separate its features 
+[target.'cfg(target_os = "windows")'.dependencies.midir]
+version = "0.10.4"
+default-features = false
+features = ["winmm"]
