@@ -1,0 +1,32 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default permissions for Aerolux",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-title",
+    "store:allow-get",
+    "store:allow-set",
+    "store:allow-save",
+    "store:allow-load",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:default",
+    "fs:default",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "fs:allow-read-file",
+    "fs:allow-write-file",
+    "fs:allow-exists",
+    "fs:allow-remove",    
+    "fs:allow-mkdir",
+    { "identifier": "fs:scope", "allow": ["$HOME/**"] },
+    "shell:allow-open",
+    "notification:allow-request-permission",
+    "notification:allow-notify",
+    "notification:default",
+    "process:default",
+    "process:allow-exit"
+  ]
+}
