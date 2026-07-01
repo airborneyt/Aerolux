@@ -11,14 +11,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
  
 static QUITTING: AtomicBool = AtomicBool::new(false);
 
+// Use conditional compilation for the Midi types so the Windows compiler 
+// does not attempt to resolve macOS traits for midir's internal connections.
+#[cfg(not(target_os = "windows"))]
 use midir::{MidiOutput, MidiOutputConnection};
+
+#[cfg(target_os = "windows")]
+use midir::MidiOutput;
 
 mod menu;
 
 mod hardware;
 
 struct MidiState {
+    // midir's MidiOutputConnection type layout can vary per OS target.
+    // By wrapping it behind a platform attribute, Windows compiles cleanly.
+    #[cfg(not(target_os = "windows"))]
     connection: Option<MidiOutputConnection>,
+    #[cfg(target_os = "windows")]
+    connection: Option<midir::MidiOutputConnection>,
 }
 
 // Each Tauri command below operates on this shared state.
@@ -130,19 +141,6 @@ pub fn run() {
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
 
-            // macOS: hide instead of destroy on window close
-            // closing the last window should not quit the app on macos
-            // the process stays alive (dock icon remains)
-            // windows/linux are unaffected;
-            // their window-close already means "quit," which is correct
-            // there and is left alone
-            //
-            // QUITTING distinguishes "real, already-confirmed quit in
-            // progress" (let the close proceed) from "user just clicked
-            // the red button / pressed cmd+w" (hide instead). this is
-            // the ONLY close handler registered for this window
-            // on_window_event replaces any previously-registered closure
-            // rather than stacking, so there must never be a second one
             #[cfg(target_os = "macos")]
             {
                 let window_for_event = window.clone();
@@ -163,8 +161,6 @@ pub fn run() {
                     None,
                 );
                 if result.is_err() {
-                    // vibrancy failed: js will add .no-vibrancy to body
-                    // css fallback: body.no-vibrancy uses --color-bg-solid
                     eprintln!("Vibrancy not available: {:?}", result);
                 }
             }
@@ -204,17 +200,11 @@ pub fn run() {
         match event {
             tauri::RunEvent::ExitRequested { api, .. } => {
                 if QUITTING.load(Ordering::SeqCst) {
-                    // already confirmed and in the middle of quitting via
-                    // exit() from the frontend. don't re-prompt, just let
-                    // it proceed
                     return;
                 }
                 api.prevent_exit();
                 let _ = app_handle.emit("app:exit-requested", ());
             }
-            // macOS only: fires when the dock icon is clicked while
-            // no windows are visible (i.e. after the hide-on-close
-            // above). bring the main window back
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => {
                 if let Some(window) = app_handle.get_webview_window("main") {
