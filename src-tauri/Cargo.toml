@@ -40,12 +40,4 @@ tar = "0.4"
 zip = "2"
 futures-util = "0.3"
 rodio = "0.22.2"
-
-[target.'cfg(target_os = "macos")'.dependencies]
 midir = "0.10.4"
-
-[target.'cfg(target_os = "linux")'.dependencies]
-midir = "0.10.4"
-
-[target.'cfg(target_os = "windows")'.dependencies]
-midir = { version = "0.10.4", default-features = false, features = ["winmm"] }
