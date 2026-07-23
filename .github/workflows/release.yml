@@ -49,10 +49,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: app-v__VERSION__
-          tagMessage: 'App v__VERSION__'
-          releaseName: 'App v__VERSION__'
+          tagName: app-v2.0.0-alpha.2
+          tagMessage: 'App v2.0.0-alpha.2'
+          releaseName: 'App v2.0.0-alpha.2'
           releaseBody: 'Download your app for Windows, macOS, or Linux.'
           releaseDraft: true
-          prerelease: false
+          prerelease: true
           args: ${{ matrix.args }}
