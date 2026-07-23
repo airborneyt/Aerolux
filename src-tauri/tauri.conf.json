@@ -1,6 +1,6 @@
 {
   "productName": "Aerolux",
-  "version": "2.0.0-alpha.2",
+  "version": "2.0.0.02",
   "identifier": "com.airborneyt.aerolux",
   "build": {
     "frontendDist": "../dist",
