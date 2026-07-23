@@ -6,8 +6,22 @@
 //   y = 0 (bottom edge) → 9 (top edge)
 //   main grid occupies x = 1..8, y = 1..8 (bottom-left origin)
 //   edges occupy x = 0 or x = 9 or y = 0 or y = 9 (one axis only)
-//   the top-right corner (9,9) hosts two virtual cells; 'logo' and
-//   'mode' — which share one physical light. See LOGO_MODE below.
+//
+// LOGO vs MODE: on real hardware these share the same export id. they
+// are two independent, separately-sample-able positions: LOGO stays at
+// its physical spot (9,9); MODE gets its own dedicated position below the
+// main grid (4.5,-1), matching where VirtualLP.svelte already drew a
+// separate "mode light row" (that duplication is what this file now feeds
+// directly. see VirtualLP.svelte's own header comment). content can be
+// authored independently for each. only when something needs to talk to
+// the ONE real physical output (live SysEx, or a .mid export) does
+// a choice have to be made; see resolveLogoModeForExport() below, and
+// each cell's `realSysexPad` field, which is what real-hardware code must
+// use instead of `sysexPad` for this pair specifically (their `sysexPad`
+// values are deliberately DIFFERENT (99 for logo, 100 for mode) so they
+// can be sampled/rendered/previewed as separate entries in a
+// Map<sysexPad,...>; only `realSysexPad` reflects the true, single,
+// shared hardware address both of them ultimately share).
 
 export const ZONE = {
   MAIN:   'main',
@@ -15,16 +29,9 @@ export const ZONE = {
   RIGHT:  'right',
   LEFT:   'left',
   BOTTOM: 'bottom',
+  CORNER: 'corner', // non-addressable virtual placeholder (TL/BL/BR)
   LOGO:   'logo',
   MODE:   'mode',
-};
-
-// device profiles: determining which edges physically exist ─────────
-
-export const DEVICE_PROFILES = {
-  LPX:  { top: true, right: true, left: false, bottom: false },
-  LPP2: { top: true, right: true, left: true,  bottom: true  },
-  LPP3: { top: true, right: true, left: true,  bottom: true  },
 };
 
 // main grid export-note table (DAW drum-rack arrangement) ───────────
@@ -42,19 +49,18 @@ const DRUM_RACK_GRID_NOTES = [
   [64, 65, 66, 67, 96, 97, 98, 99],
 ];
 
-// edge export-note ranges ───────────────────────────────────────────
-// shared logo/mode cell uses note 27. corners are export-omitted
+// edge export-note ranges ––––––––––––––––––––––––––––––––––––––––––
+// shared logo/mode cell uses note 27. corner placeholders are export-omitted
 
 const EXPORT_NOTES = {
   logoMode: 27,
   top:    [28, 29, 30, 31, 32, 33, 34, 35],   // left → right
-  right:  [100, 101, 102, 103, 104, 105, 106, 107], // top → bottom
-  left:   [108, 109, 110, 111, 112, 113, 114, 115], // top → bottom
+  right:  [107, 106, 105, 104, 103, 102, 101, 100], // top → bottom
+  left:   [115, 114, 113, 112, 111, 110, 109, 108], // top → bottom
   bottom: [116, 117, 118, 119, 120, 121, 122, 123], // left → right
-  // 124-127 reserved for the LPP3 second bottom row, once measured
 };
 
-// live SysEx pad numbers ────────────────────────────────────────────
+// live SysEx pad numbers –––––––––––––––––––––––––––––––––––––––––––
 // main grid: (row+1)*10 + (col+1), bottom-left origin. this matches the
 // existing indexAt()/buildSysexData() convention
 
@@ -70,23 +76,25 @@ export const EDGE_SYSEX = {
   bottom: [1, 2, 3, 4, 5, 6, 7, 8],          // x=1..8 → left → right
 };
 
-// grid builder ──────────────────────────────────────────────────────
+// MODE's own dedicated position (see the module doc above) and its
+// preview-only sysexPad. 100 is otherwise completely unused by any real
+// address in this whole numbering scheme (every real pad number used
+// anywhere above tops out at 99), so it's safe to reserve purely for
+// letting MODE render/sample as a genuinely separate entry from LOGO.
+// NEVER used for real hardware output. see realSysexPad on both cells.
+const MODE_LIGHT_POSITION = { x: 4.5, y: -1 };
+const MODE_PREVIEW_SYSEX_PAD = 100;
+
+// grid builder –––––––––––––––––––––––––––––––––––––––––––––––––––––
 
 /**
- * build the full set of addressable cells for a device.
- * each cell: { x, y, zone, sysexPad, exportNote }
- * exportNote is null where the DAW drum-rack mode has no note assigned
- * (corner placeholders only)
- *
- * the logo/mode corner produces two cells at (9,9) — one zone:'logo',
- * one zone:'mode', both sharing sysexPad 99 and exportNote 27
- * use pickLogoOrMode() to choose which one actually drives output
- *
- * @param {string} device 'LPX' | 'LPP2' | 'LPP3'
- * @returns {Array<{x:number,y:number,zone:string,sysexPad:number,exportNote:number|null}>}
- */
-export function buildLaunchpadGrid(device = 'LPP2') {
-  const profile = DEVICE_PROFILES[device] ?? DEVICE_PROFILES.LPP2;
+  build the full set of addressable cells for the (single, canonical)
+  Launchpad layout. each cell: { x, y, zone, sysexPad, exportNote }, plus
+  `realSysexPad` on the logo/mode pair specifically (see module doc).
+
+@returns {Array<{x:number,y:number,zone:string,sysexPad:number|null,exportNote:number|null,realSysexPad?:number}>}
+*/
+export function buildLaunchpadGrid() {
   const cells = [];
 
   // main 8x8
@@ -102,153 +110,174 @@ export function buildLaunchpadGrid(device = 'LPP2') {
   }
 
   // top row (y = 9)
-  if (profile.top) {
-    for (let x = 1; x <= 8; x++) {
-      cells.push({
-        x, y: 9,
-        zone: ZONE.TOP,
-        sysexPad:   EDGE_SYSEX.top[x - 1],
-        exportNote: EXPORT_NOTES.top[x - 1],
-      });
-    }
+  for (let x = 1; x <= 8; x++) {
+    cells.push({
+      x, y: 9,
+      zone: ZONE.TOP,
+      sysexPad:   EDGE_SYSEX.top[x - 1],
+      exportNote: EXPORT_NOTES.top[x - 1],
+    });
   }
 
   // right column (x = 9)
-  if (profile.right) {
-    for (let y = 1; y <= 8; y++) {
-      cells.push({
-        x: 9, y,
-        zone: ZONE.RIGHT,
-        sysexPad:   EDGE_SYSEX.right[y - 1],
-        exportNote: EXPORT_NOTES.right[y - 1],
-      });
-    }
+  for (let y = 1; y <= 8; y++) {
+    cells.push({
+      x: 9, y,
+      zone: ZONE.RIGHT,
+      sysexPad:   EDGE_SYSEX.right[y - 1],
+      exportNote: EXPORT_NOTES.right[y - 1],
+    });
   }
 
   // left column (x = 0)
-  if (profile.left) {
-    for (let y = 1; y <= 8; y++) {
-      cells.push({
-        x: 0, y,
-        zone: ZONE.LEFT,
-        sysexPad:   EDGE_SYSEX.left[y - 1],
-        exportNote: EXPORT_NOTES.left[y - 1],
-      });
-    }
+  for (let y = 1; y <= 8; y++) {
+    cells.push({
+      x: 0, y,
+      zone: ZONE.LEFT,
+      sysexPad:   EDGE_SYSEX.left[y - 1],
+      exportNote: EXPORT_NOTES.left[y - 1],
+    });
   }
 
   // bottom row (y = 0)
-  if (profile.bottom) {
-    for (let x = 1; x <= 8; x++) {
-      cells.push({
-        x, y: 0,
-        zone: ZONE.BOTTOM,
-        sysexPad:   EDGE_SYSEX.bottom[x - 1],
-        exportNote: EXPORT_NOTES.bottom[x - 1],
-      });
-    }
+  for (let x = 1; x <= 8; x++) {
+    cells.push({
+      x, y: 0,
+      zone: ZONE.BOTTOM,
+      sysexPad:   EDGE_SYSEX.bottom[x - 1],
+      exportNote: EXPORT_NOTES.bottom[x - 1],
+    });
   }
 
-  // bottom corners: virtual placeholders, no physical light, export-omitted
-  cells.push({ x: 0, y: 0, zone: ZONE.BOTTOM, sysexPad: null, exportNote: null });
-  cells.push({ x: 9, y: 0, zone: ZONE.BOTTOM, sysexPad: null, exportNote: null });
+  // corners: TL/BL/BR are virtual placeholders. no physical light exists
+  // at any of these three positions on real hardware. they exist purely so
+  // a renderer/consumer can treat the addressable area as a clean 10x10
+  // square without special-casing "there's nothing there".
+  cells.push({ x: 0, y: 9, zone: ZONE.CORNER, sysexPad: null, exportNote: null }); // TL
+  cells.push({ x: 0, y: 0, zone: ZONE.CORNER, sysexPad: null, exportNote: null }); // BL
+  cells.push({ x: 9, y: 0, zone: ZONE.CORNER, sysexPad: null, exportNote: null }); // BR
 
-  // top-right corner: logo AND mode, both at (9,9), sharing one output
-  cells.push({ x: 9, y: 9, zone: ZONE.LOGO, sysexPad: EDGE_SYSEX.logoMode, exportNote: EXPORT_NOTES.logoMode });
-  cells.push({ x: 9, y: 9, zone: ZONE.MODE, sysexPad: EDGE_SYSEX.logoMode, exportNote: EXPORT_NOTES.logoMode });
+  // top-right corner: the real logo light.
+  cells.push({
+    x: 9, y: 9, zone: ZONE.LOGO,
+    sysexPad: EDGE_SYSEX.logoMode, exportNote: EXPORT_NOTES.logoMode,
+    realSysexPad: EDGE_SYSEX.logoMode,
+  });
+
+  // mode light: its own distinct position (see module doc). sample-able
+  // and render-able completely independently of the logo light, but
+  // sharing the same real hardware output whenever one has to actually be
+  // chosen for real output. `sysexPad` here is preview-only.
+  cells.push({
+    x: MODE_LIGHT_POSITION.x, y: MODE_LIGHT_POSITION.y, zone: ZONE.MODE,
+    sysexPad: MODE_PREVIEW_SYSEX_PAD, exportNote: EXPORT_NOTES.logoMode,
+    realSysexPad: EDGE_SYSEX.logoMode,
+  });
 
   return cells;
 }
 
-// logo / mode selection ─────────────────────────────────────────────
+// logo / mode resolution –––––––––––––––––––––––––––––––––––––––––––
 
 /**
- * given the full cell list and the app's logo/mode setting, return the
- * single cell that should actually drive the shared (9,9) output
- * for both live SysEx and .mid export.
- *
- * @param {Array} cells   - result of buildLaunchpadGrid()
- * @param {'logo'|'mode'} setting
- * @returns {object|undefined}
- */
+  returns the single logo-or-mode cell matching `setting`.
+
+@param {Array} cells
+@param {'logo'|'mode'} setting
+@returns {object|undefined}
+*/
 export function pickLogoOrMode(cells, setting) {
   const zone = setting === 'mode' ? ZONE.MODE : ZONE.LOGO;
-  return cells.find(c => c.x === 9 && c.y === 9 && c.zone === zone);
+  return cells.find(c => c.zone === zone);
 }
 
-// lookups ───────────────────────────────────────────────────────────
+/**
+  resolves the logo/mode pair down to whichever one should actually be
+  used wherever real hardware output is involved (live SysEx send, or a
+  .mid export); they share exactly one physical light on real hardware
+  (see this module's header), so exactly one has to win. Every other cell
+  passes through unchanged. callers still need to read `realSysexPad`
+  (not `sysexPad`) off the surviving cell when they actually build the
+  real address/message. see buildSysexMessage below for the pattern.
+ 
+@param {Array} cells
+@param {'logo'|'mode'} [logoOrMode]
+@returns {Array} cells with the non-chosen logo/mode entry removed
+*/
+export function resolveLogoModeForExport(cells, logoOrMode = 'logo') {
+  const dropZone = logoOrMode === 'mode' ? ZONE.LOGO : ZONE.MODE;
+  return cells.filter(c => c.zone !== dropZone);
+}
+
+// lookups ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
 /**
- * find a cell by coordinate. For (9,9), pass `logoOrMode` to disambiguate
- * otherwise the 'logo' cell is returned by default.
- *
- * @param {Array} cells
- * @param {number} x
- * @param {number} y
- * @param {'logo'|'mode'} [logoOrMode]
- * @returns {object|undefined}
- */
-export function cellAt(cells, x, y, logoOrMode = 'logo') {
-  if (x === 9 && y === 9) return pickLogoOrMode(cells, logoOrMode);
+  find a cell by coordinate.
+
+@param {Array} cells
+@param {number} x
+@param {number} y
+@returns {object|undefined}
+*/
+export function cellAt(cells, x, y) {
   return cells.find(c => c.x === x && c.y === y);
 }
 
 /**
- * find a cell by its live SysEx pad number
- * for pad 99 (logo/mode), pass `logoOrMode` to disambiguate
- *
- * @param {Array} cells
- * @param {number} pad
- * @param {'logo'|'mode'} [logoOrMode]
- * @returns {object|undefined}
- */
-export function cellBySysexPad(cells, pad, logoOrMode = 'logo') {
-  if (pad === EDGE_SYSEX.logoMode) return pickLogoOrMode(cells, logoOrMode);
+  find a cell by its preview sysex pad number. for real
+  hardware output involving the logo/mode pair, resolve via
+  resolveLogoModeForExport() first and read `realSysexPad`, not this.
+
+@param {Array} cells
+@param {number} pad
+@returns {object|undefined}
+*/
+export function cellBySysexPad(cells, pad) {
   return cells.find(c => c.sysexPad === pad);
 }
 
 /**
- * find a cell by its .mid export note number
- * for note 27 (logo/mode), pass `logoOrMode` to disambiguate
- *
- * @param {Array} cells
- * @param {number} note
- * @param {'logo'|'mode'} [logoOrMode]
- * @returns {object|undefined}
- */
+  find a cell by its .mid export note number. note 27 is shared between
+  logo and mode so it needs to be disambiguated.
+
+@param {Array} cells
+@param {number} note
+@param {'logo'|'mode'} [logoOrMode]
+@returns {object|undefined}
+*/
 export function cellByExportNote(cells, note, logoOrMode = 'logo') {
   if (note === EXPORT_NOTES.logoMode) return pickLogoOrMode(cells, logoOrMode);
   return cells.find(c => c.exportNote === note);
 }
 
-// SysEx message builder ─────────────────────────────────────────────
+// SysEx message builder ––––––––––––––––––––––––––––––––––––––––––––
 
 /**
- * build a SysEx RGB bulk message from a colour map keyed by coordinate
- *
+ * build a SysEx RGB bulk message from a colour map keyed by coordinate.
  * @param {Array} cells               - result of buildLaunchpadGrid()
  * @param {Map<string,[number,number,number]>} colourMap
  *        - keys are "x,y" strings, values are 6-bit [r,g,b]
- * @param {'logo'|'mode'} logoOrMode  - which (9,9) cell drives pad 99
+ * @param {'logo'|'mode'} logoOrMode  - which one actually drives the
+ *        shared real pad 99 for this message
  * @returns {Uint8Array}
  */
 export function buildSysexMessage(cells, colourMap, logoOrMode = 'logo') {
+  const resolved = resolveLogoModeForExport(cells, logoOrMode);
   const padData = [];
   const seenPads = new Set();
 
-  for (const cell of cells) {
+  for (const cell of resolved) {
     if (cell.sysexPad === null) continue;
-    if (cell.zone === ZONE.LOGO || cell.zone === ZONE.MODE) {
-      const chosen = pickLogoOrMode(cells, logoOrMode);
-      if (cell !== chosen) continue;
-    }
-    if (seenPads.has(cell.sysexPad)) continue;
+    // logo/mode cells must be sent under their real shared address, not
+    // their preview-only sysexPad (100 for mode isn't a real pad at all).
+    const realPad = cell.realSysexPad ?? cell.sysexPad;
+    if (seenPads.has(realPad)) continue;
 
     const rgb = colourMap.get(`${cell.x},${cell.y}`);
     if (!rgb) continue;
 
-    seenPads.add(cell.sysexPad);
-    padData.push(cell.sysexPad, rgb[0], rgb[1], rgb[2]);
+    seenPads.add(realPad);
+    padData.push(realPad, rgb[0], rgb[1], rgb[2]);
   }
 
   return new Uint8Array([
@@ -268,35 +297,33 @@ export function noteName(midi) {
 
 // note ↔ grid helpers ───────────────────────────────────────────────
 
-const cells = buildLaunchpadGrid('LPP3');
+let cachedGrid = null;
+
+/**
+  a single grid, computed once for the whole app's lifetime and shared 
+  by every caller. sampleDevice.js's getDeviceGrid() and VirtualLP.svelte's 
+  own rendering both read this directly, so the ~103 cell objects are built 
+  exactly once total, not once per call site or once per component instance.
+
+  @returns {Array}
+*/
+export function getCachedGrid() {
+  if (!cachedGrid) cachedGrid = buildLaunchpadGrid();
+  return cachedGrid;
+}
 
 export function noteToGrid(note) {
-    const cell = cellByExportNote(cells, note, 'logo'); // or 'mode'
+    const cell = cellByExportNote(getCachedGrid(), note, 'logo');
     return cell ? { x: cell.x, y: cell.y, zone: cell.zone } : null;
 }
 
-export function gridToNote({ x, y }, logoOrMode = 'logo') {
-  const cell = cellAt(cells, x, y, logoOrMode);
+export function gridToNote({ x, y }) {
+  const cell = cellAt(getCachedGrid(), x, y);
   return cell ? cell.exportNote : null;
 }
 
-const GRID_CACHE = {
-  LPX: null,
-  LPP2: null,
-  LPP3: null,
-};
-
-function getGrid(device) {
-  if (!GRID_CACHE[device]) {
-    GRID_CACHE[device] = buildLaunchpadGrid(device);
-  }
-  return GRID_CACHE[device];
-}
-
-export function noteToCell(note, device = 'LPP2') {
-  const cells = getGrid(device);
-
-  const cell = cells.find(c => c.exportNote === note);
+export function noteToCell(note) {
+  const cell = getCachedGrid().find(c => c.exportNote === note);
   if (!cell) return null;
 
   return {
@@ -306,21 +333,25 @@ export function noteToCell(note, device = 'LPP2') {
   };
 }
 
+/**
+@param {{zone:string,row:number,col:number}} cell
+@returns {number|null}
+*/
 export function cellToSysex(cell) {
   const { zone, row, col } = cell;
 
-  if (zone === 'main') return (row + 1) * 10 + (col + 1);
-  if (zone === 'top') return EDGE_SYSEX.top[col];
-  if (zone === 'right') return EDGE_SYSEX.right[row];
-  if (zone === 'left') return EDGE_SYSEX.left[row];
-  if (zone === 'bottom') return EDGE_SYSEX.bottom[col];
-  if (zone === 'corner') return EDGE_SYSEX.logoMode;
+  if (zone === ZONE.MAIN) return (row + 1) * 10 + (col + 1);
+  if (zone === ZONE.TOP) return EDGE_SYSEX.top[col];
+  if (zone === ZONE.RIGHT) return EDGE_SYSEX.right[row];
+  if (zone === ZONE.LEFT) return EDGE_SYSEX.left[row];
+  if (zone === ZONE.BOTTOM) return EDGE_SYSEX.bottom[col];
+  if (zone === ZONE.LOGO || zone === ZONE.MODE) return EDGE_SYSEX.logoMode;
 
-  return null;
+  return null; // corner placeholders: no real address
 }
 
-export function noteToSysex(note, device = 'LPP2') {
-    const cell = noteToCell(note, device);
+export function noteToSysex(note) {
+    const cell = noteToCell(note);
     if (!cell) return null;
     return cellToSysex(cell);
 }

@@ -20,6 +20,7 @@ const tips = [
     'Velocity: The Bell envelope brightens the middle of the gradient. Great for a glowing effect.',
     'Aerolux was initially made to quickly make a new gradient pack for the airborneyt palette.',
     'Kinetic was designed way before Velocity. Back in 2025! It started as a JUCE project.',
+    'Kinetic: Shift + Drag to box-select multiple nodes at once.',
     'Airbot works entirely on-device. Nothing you generate ever leaves your machine.',    
     'Hold Alt/Option to access more information or settings. Try it out here!',
 ];
@@ -127,7 +128,7 @@ async function handleOpenRecent(recent) {
 
     <!-- version stamp -->
     <p class="al-dim" style="text-align:center;padding-top:var(--space-4)">
-        Aerolux 2.0.0-alpha.1 · by Airborne
+        Aerolux 2.0.0-alpha.2 · by Airborne
     </p>
 
     <NewProjectModal bind:open={newProjectModalOpen} />

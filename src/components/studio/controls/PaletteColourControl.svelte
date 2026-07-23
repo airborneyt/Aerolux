@@ -5,7 +5,7 @@ import { toHex } from '../../../lib/aerolux/palette.js';
 
 let { label = 'Colour', value = 8, onchange = () => {} } = $props();
 
-// Build 16×8 grid matching the Velocity editor's indexAt layout.
+// build 16x8 grid matching the Velocity editor's indexAt layout
 // indexAt(col, rowFromBottom) = Math.floor(col/4)*32 + rowFromBottom*4 + (col%4)
 function indexAt(col, rfb) {
     return Math.floor(col / 4) * 32 + rfb * 4 + (col % 4);
@@ -16,14 +16,14 @@ for (let cssRow = 0; cssRow < 8; cssRow++) {
     for (let col = 0; col < 16; col++) {
         const idx = indexAt(col, 7 - cssRow);
         const c   = editor.palette[idx];
-        row.push({ idx, hex: c ? toHex(c[0], c[1], c[2]) : '#000' });
+        row.push({ idx, hex: c ? toHex(c.r, c.g, c.b) : '#000' });
     }
     grid.push(row);
 }
 
 const selectedHex = $derived.by(() => {
     const c = editor.palette[value];
-    return c ? toHex(c[0], c[1], c[2]) : '#000';
+    return c ? toHex(c.r, c.g, c.b) : '#000';
 });
 </script>
 

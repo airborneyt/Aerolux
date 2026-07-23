@@ -111,7 +111,7 @@ async function resetAllSettings() {
 <!-- warning -->
     <div style="display:flex;gap:8px;padding:8px;background:rgba(255,0,0,0.1);align-items:center;flex-wrap:wrap">
         <span style="font-size:11px;font-weight:bolder;">
-            The Settings page is due for a rewrite in the next alpha.
+            The Settings page is due for a rewrite in a future alpha.
         </span>
     </div>    
 <div class="al-settings-page">

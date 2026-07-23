@@ -1,178 +1,256 @@
 <!-- src/components/studio/NodeInspector.svelte -->
 <!--
-    Auto-generates inspector controls from a node descriptor's params.
-    Used by KineticInspector.svelte when no custom inspector component exists.
+    auto-generates inspector controls from a node's descriptor (NODE_DEFS).
+    param-editing UI that never touches the runtime field representation.
 -->
 <script>
-import { NODE_BY_ID } from '../../lib/aerolux/nodeRegistry.js';
-import { kinetic, setParam, toggleNode, removeNode } from '../../stores/kinetic.svelte.js';
+import {
+    kinetic, currentInstances, setParam, toggleNode, removeNode,
+    setTimeRange, openComposite, rebakeComposite, unbakeComposite, renameNode,
+} from '../../stores/kinetic.svelte.js';
+import { registerRenameRequestHandler, unregisterRenameRequestHandler } from '../../stores/kineticUiSignals.svelte.js';
+import { onMount, onDestroy } from 'svelte';
+import { NODE_DEFS } from '../../lib/aerolux/kinetic/nodeRegistry.js';
+import { editor } from '../../stores/velocity.svelte.js';
 import KnobControl from './controls/KnobControl.svelte';
 import ToggleControl from './controls/ToggleControl.svelte';
 import SelectControl from './controls/SelectControl.svelte';
-import SplinePointsControl from './controls/SplinePointsControl.svelte';
-import SplineAdvancedEditor from './SplineAdvancedEditor.svelte';
-import GradientRefControl  from './controls/GradientRefControl.svelte';
-import PaletteColourControl from './controls/PaletteColourControl.svelte';
 import ClipImportControl from './controls/ClipImportControl.svelte';
+import PaletteColourControl from './controls/PaletteColourControl.svelte';
 
-let { instance } = $props();
+const instance = $derived(
+    currentInstances().find(n => n.instanceId === kinetic.selectedInstanceId) ?? null
+);
+const def = $derived(instance ? NODE_DEFS[instance.nodeId] : null);
 
-let advancedEditorOpen = $state(false);
+// the output node's `target` param has only 'canvas' as a static option in
+// NODE_DEFS. specific device ids get appended here, and 'group' is a
+// synthetic target only ever set programmatically by grouping, never offered
+// as a manual choice here.
+const outputTargetOptions = $derived([
+    { value: 'canvas', label: 'Canvas (all devices)' },
+    ...kinetic.devices.map(d => ({
+        value: d.id,
+        label: `${d.model}${d.isPrimary ? ' — primary' : ''}`,
+    })),
+]);
 
-const desc = $derived(NODE_BY_ID[instance?.nodeId]);
+// rename –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+// double-click the label to rename inline (below). ALSO reachable from
+// NodeGraph.svelte's context menu. that path now calls requestRename()
+// (kineticUiSignals.svelte.js), which this component answers by entering
+// the exact same inline-edit mode as a double-click would, via a
+// registered callback.
+let renaming = $state(false);
+let renameDraft = $state('');
+
+function startRename() {
+    if (!instance) return;
+    renameDraft = instance.label || def?.label || '';
+    renaming = true;
+}
+function commitRename() {
+    if (!renaming) return; // guards the redundant blur that firing commitRename() via Enter can trigger
+    renaming = false;
+    if (!instance) return;
+    renameNode(instance.instanceId, renameDraft.trim());
+}
+function onRenameKeydown(e) {
+    if (e.key === 'Enter') commitRename();
+    if (e.key === 'Escape') renaming = false;
+}
+
+onMount(() => {
+    const handler = (id) => {
+        if (instance && instance.instanceId === id) startRename();
+    };
+    registerRenameRequestHandler(handler);
+    return () => unregisterRenameRequestHandler(handler);
+});
+
+// selecting a different node while mid-rename abandons the edit rather
+// than risk applying a stale draft to the newly-selected node.
+let lastInstanceId = null;
+$effect(() => {
+    const id = instance?.instanceId ?? null;
+    if (id !== lastInstanceId) {
+        lastInstanceId = id;
+        renaming = false;
+    }
+});
+
+// active range (timeRange) –––––––––––––––––––––––––––––––––––––––––
+const hasRange = $derived(!!instance?.timeRange);
+let draftStart = $state(0);
+let draftEnd   = $state(480);
+$effect(() => {
+    if (instance?.timeRange) {
+        draftStart = instance.timeRange.start ?? 0;
+        draftEnd   = instance.timeRange.end ?? 480;
+    }
+});
+
+function toggleRange() {
+    if (!instance) return;
+    if (hasRange) setTimeRange(instance.instanceId, null, null);
+    else setTimeRange(instance.instanceId, draftStart, draftEnd);
+}
+function commitRange() {
+    if (!instance || !hasRange) return;
+    setTimeRange(instance.instanceId, draftStart, draftEnd);
+}
+
+// bake –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+function handleRebake() {
+    if (!instance) return;
+    rebakeComposite(instance.instanceId, { palette: editor.palette, devices: kinetic.devices }, {});
+}
+function handleUnbake() {
+    if (!instance) return;
+    unbakeComposite(instance.instanceId);
+}
 </script>
 
-{#if instance && desc}
-    <div class="insp-node-header">
-        <span class="insp-node-icon">{desc.icon}</span>
-        <span class="insp-node-label">{desc.label}</span>
-        <div class="insp-node-actions">
+{#if instance && def}
+    <div class="insp-header">
+        <span class="insp-icon">{def.icon}</span>
+        {#if renaming}
+            <input
+                class="al-text-input insp-rename-input"
+                bind:value={renameDraft}
+                onblur={commitRename}
+                onkeydown={onRenameKeydown}
+                autofocus
+            />
+        {:else}
+            <span
+                class="insp-label"
+                ondblclick={startRename}
+                title="Double-click to rename"
+            >{instance.label || def.label}</span>
+        {/if}
+        <div class="insp-actions">
             <button
                 class="al-btn al-btn-sm {instance.enabled ? '' : 'al-btn-danger'}"
                 onclick={() => toggleNode(instance.instanceId)}
-                title={instance.enabled ? 'Bypass' : 'Bypassed. Click to re-enable'}
+                title={instance.enabled ? 'Bypass' : 'Bypassed — click to re-enable'}
             >{instance.enabled ? '⏺' : '⏸'}</button>
-            <button
-                class="al-btn al-btn-sm al-btn-ghost"
-                onclick={() => removeNode(instance.instanceId)}
-            >✕</button>
+            <button class="al-btn al-btn-sm al-btn-ghost" onclick={() => removeNode(instance.instanceId)}>✕</button>
         </div>
     </div>
 
-    {#if desc.hint}
-        <p class="al-hint-text" style="margin-bottom:14px">{desc.hint}</p>
+    {#if def.hint}
+        <p class="al-hint-text" style="margin-bottom:14px">{def.hint}</p>
+    {/if}
+
+    {#if instance.nodeId === 'composite'}
+        <div class="insp-composite-block">
+            <button class="al-btn al-btn-blue" style="width:100%" onclick={() => openComposite(instance.instanceId)}>
+                ▣ Open composite
+            </button>
+            <div class="insp-bake-row">
+                <span class="al-status-pill">
+                    <span class="al-status-dot {instance.baked ? 'ok' : ''}"></span>
+                    {instance.baked ? 'Baked' : 'Not baked'}
+                </span>
+                {#if instance.baked}
+                    <button class="al-btn al-btn-sm" onclick={handleRebake}>↻ Re-bake</button>
+                    <button class="al-btn al-btn-sm al-btn-ghost" onclick={handleUnbake}>Un-bake</button>
+                {:else}
+                    <button class="al-btn al-btn-sm al-btn-green" onclick={handleRebake}>⬢ Bake</button>
+                {/if}
+            </div>
+        </div>
+        <div class="al-divider"></div>
     {/if}
 
     <div class="insp-params">
-        {#each Object.entries(desc.params) as [key, paramDesc]}
-
-            <!-- Special types: routed to custom components -->
-            {#if paramDesc.type === 'splinePoints'}
-                <SplinePointsControl
-                    value={instance.params[key]}
-                    device={kinetic.device}
-                    onchange={v => setParam(instance.instanceId, key, v)}
-                />
-                <button
-                    class="al-btn"
-                    style="width:100%;margin-top:6px;font-size:11px"
-                    onclick={() => advancedEditorOpen = true}
-                >
-                    ✦ Advanced editor
-                </button>
-
-            {:else if paramDesc.type === 'gradientRef'}
-                <GradientRefControl
-                    label={paramDesc.label}
-                    value={instance.params[key]}
-                    hint={paramDesc.hint}
-                    onchange={v => setParam(instance.instanceId, key, v)}
-                />
-            {:else if paramDesc.type === 'paletteColour'}
-                <PaletteColourControl
-                    label={paramDesc.label}
-                    value={instance.params[key]}
-                    onchange={v => setParam(instance.instanceId, key, v)}
-                />   
-            {:else if paramDesc.type === 'clipImport'}
-                <ClipImportControl
-                    instanceId={instance.instanceId}
-                    label={paramDesc.label}
-                    value={instance.params[key]}
-                    onchange={v => setParam(instance.instanceId, key, v)}
-                />    
-
-            <!-- Standard auto-generated controls -->
-            {:else}
-                <div class="insp-param-row">
-                    {#if paramDesc.type === 'knob'}
-                        <KnobControl
-                            label={paramDesc.label}
-                            value={instance.params[key]}
-                            min={paramDesc.min}
-                            max={paramDesc.max}
-                            unit={paramDesc.unit ?? ''}
-                            wrap={paramDesc.wrap ?? false}
-                            decimals={paramDesc.decimals ?? 0}
-                            hint={paramDesc.hint ?? ''}
-                            onchange={v => setParam(instance.instanceId, key, v)}
+        {#each Object.entries(def.params) as [key, p]}
+            {@const value = instance.params[key]}
+            <div class="insp-row">
+                {#if p.type === 'knob'}
+                    <KnobControl
+                        label={p.label} value={value} min={p.min} max={p.max}
+                        unit={p.unit ?? ''} wrap={p.wrap ?? false} decimals={p.decimals ?? 0}
+                        hint={p.hint ?? ''}
+                        onchange={v => setParam(instance.instanceId, key, v)}
+                    />
+                {:else if p.type === 'toggle'}
+                    <ToggleControl
+                        label={p.label} value={value} hint={p.hint ?? ''}
+                        onchange={v => setParam(instance.instanceId, key, v)}
+                    />
+                {:else if p.type === 'import'}
+                    <ClipImportControl
+                        label={p.label} value={value} instanceId
+                        onchange={v => setParam(instance.instanceId, key, v)}
+                    />    
+                {:else if p.type === 'select'}
+                    <SelectControl
+                        label={p.label} value={value}
+                        options={(instance.nodeId === 'output' && key === 'target') ? outputTargetOptions : p.options}
+                        hint={p.hint ?? ''}
+                        onchange={v => setParam(instance.instanceId, key, v)}
+                    />
+                {:else if p.type === 'paletteColour'}
+                    <PaletteColourControl
+                        label={p.label} value={value}
+                        onchange={v => setParam(instance.instanceId, key, v)}
+                    />
+                {:else if p.type === 'int' || p.type === 'float'}
+                    <div class="insp-number-wrap">
+                        <p class="al-label">{p.label}</p>
+                        <input
+                            type="number"
+                            class="al-num-input"
+                            value={value}
+                            min={p.min}
+                            max={p.max}
+                            step={p.step ?? (p.type === 'int' ? 1 : 0.01)}
+                            onchange={e => setParam(
+                                instance.instanceId, key,
+                                p.type === 'int' ? parseInt(e.target.value) : parseFloat(e.target.value)
+                            )}
                         />
-                    {:else if paramDesc.type === 'toggle'}
-                        <ToggleControl
-                            label={paramDesc.label}
-                            value={instance.params[key]}
-                            hint={paramDesc.hint ?? ''}
-                            onchange={v => setParam(instance.instanceId, key, v)}
-                        />
-                    {:else if paramDesc.type === 'select'}
-                        <div class="insp-select-wrap">
-                            <p class="al-label">{paramDesc.label}</p>
-                            {#if paramDesc.hint}
-                                <p class="al-hint-text" style="margin-bottom:6px">{paramDesc.hint}</p>
-                            {/if}
-                            <select class="al-select"
-                                value={instance.params[key]}
-                                onchange={e => setParam(instance.instanceId, key, e.target.value)}>
-                                {#each paramDesc.options as opt}
-                                    <option value={opt.value}>{opt.label}</option>
-                                {/each}
-                            </select>
-                        </div>
-                    {:else if paramDesc.type === 'int' || paramDesc.type === 'float'}
-                        <div class="insp-number-wrap">
-                            <p class="al-label">{paramDesc.label}</p>
-                            <input
-                                type="number"
-                                class="al-num-input"
-                                value={instance.params[key]}
-                                min={paramDesc.min}
-                                max={paramDesc.max}
-                                step={paramDesc.step ?? (paramDesc.type === 'int' ? 1 : 0.01)}
-                                onchange={e => setParam(instance.instanceId, key,
-                                    paramDesc.type === 'int'
-                                        ? parseInt(e.target.value)
-                                        : parseFloat(e.target.value)
-                                )}
-                            />
-                            {#if paramDesc.hint}
-                                <p class="al-hint-text" style="margin-top:4px">{paramDesc.hint}</p>
-                            {/if}
-                        </div>
-                    {/if}
-
-                    <!-- Automation lane button (future) -->
-                    {#if ['knob','float','int'].includes(paramDesc.type)}
-                        <button class="insp-auto-btn" disabled title="Automation lanes coming soon">A</button>
-                    {/if}
-                </div>
-            {/if}
-
+                        {#if p.hint}<p class="al-hint-text" style="margin-top:4px">{p.hint}</p>{/if}
+                    </div>
+                {/if}
+            </div>
         {/each}
     </div>
-{:else}
-    <p class="al-hint-text" style="padding:8px 0">
-        Select a node in the Transforms or Timeline view to edit it here.
-    </p>
-{/if}
 
-{#if advancedEditorOpen && instance && NODE_BY_ID[instance.nodeId]?.params?.controlPoints}
-    <SplineAdvancedEditor
-        bind:points={instance.params.controlPoints}
-        bind:curved={instance.params.curved}
-        bind:tension={instance.params.tension}
-        bind:smoothing={instance.params.smoothing}
-        onclose={() => advancedEditorOpen = false}
-        onchange={(pts, cur, ten, smo) => {
-            setParam(instance.instanceId, 'controlPoints', pts);
-            setParam(instance.instanceId, 'curved',        cur);
-            setParam(instance.instanceId, 'tension',       ten);
-            setParam(instance.instanceId, 'smoothing',     smo);
-        }}
-    />
+    <div class="al-divider"></div>
+
+    <div class="insp-range-block">
+        <div class="al-setting-row" style="padding:0 0 8px">
+            <div>
+                <div class="al-setting-label">Active range</div>
+                <div class="al-setting-desc">Limit this node to a tick window instead of always-on.</div>
+            </div>
+            <label class="al-toggle-wrap">
+                <input type="checkbox" checked={hasRange} onchange={toggleRange} />
+                <span class="al-dim">{hasRange ? 'Limited' : 'Always active'}</span>
+            </label>
+        </div>
+        {#if hasRange}
+            <div class="insp-range-inputs">
+                <label>
+                    <span class="al-dim" style="font-size:10px">Start</span>
+                    <input type="number" class="al-num-input" bind:value={draftStart} min="0" onchange={commitRange} />
+                </label>
+                <label>
+                    <span class="al-dim" style="font-size:10px">End</span>
+                    <input type="number" class="al-num-input" bind:value={draftEnd} min="0" onchange={commitRange} />
+                </label>
+            </div>
+        {/if}
+    </div>
+{:else}
+    <p class="al-hint-text" style="padding:8px 0">Select a node in the graph to inspect it here.</p>
 {/if}
 
 <style>
-.insp-node-header {
+.insp-header {
     display:      flex;
     align-items:  center;
     gap:          8px;
@@ -180,20 +258,17 @@ const desc = $derived(NODE_BY_ID[instance?.nodeId]);
     padding-bottom:10px;
     border-bottom:1px solid var(--color-border);
 }
-.insp-node-icon  { font-size: 18px; }
-.insp-node-label { font-size: 14px; font-weight: 600; flex: 1; }
-.insp-node-actions { display: flex; gap: 4px; }
+.insp-icon  { font-size: 18px; }
+.insp-label { font-size: 14px; font-weight: 600; flex: 1; cursor: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.insp-rename-input { flex: 1; height: 26px; font-size: 13px; font-weight: 600; }
+.insp-actions { display: flex; gap: 4px; }
 .insp-params { display: flex; flex-direction: column; gap: 18px; }
-.insp-param-row {
-    display:     flex;
-    align-items: flex-start;
-    gap:         6px;
-}
-.insp-select-wrap, .insp-number-wrap { flex: 1; }
-.insp-auto-btn {
-    width: 18px; height: 18px; flex-shrink: 0; margin-top: 22px;
-    border: 1px solid var(--color-border); border-radius: 3px;
-    background: transparent; color: var(--color-text-dim);
-    font-size: 9px; font-weight: 700; cursor: pointer; opacity: 0.4;
-}
+.insp-number-wrap { flex: 1; }
+
+.insp-composite-block { display:flex; flex-direction:column; gap:8px; margin-bottom:14px; }
+.insp-bake-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+
+.insp-range-block  { display:flex; flex-direction:column; gap:8px; }
+.insp-range-inputs { display:flex; gap:12px; }
+.insp-range-inputs label { display:flex; flex-direction:column; gap:3px; }
 </style>

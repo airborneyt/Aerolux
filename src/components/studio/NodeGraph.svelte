@@ -1,78 +1,237 @@
 <!-- src/components/studio/NodeGraph.svelte -->
 <!--
-    Pannable, zoomable canvas node graph.
-    Nodes are draggable cards. Output ports connect to input ports with wires.
-    Double-click empty space to open node search.
-    Right-click a node to open context menu.
+    canonical node graph canvas. pannable and zoomable. nodes are draggable
+    cards; output ports drag-connect to input ports. double-click empty space
+    to search-add a node; double-click a composite's card to open it.
+    right-click a node for bypass/duplicate/rename/disconnect/ungroup/delete.
+    drag a node from NodeMenu.svelte and drop it on the canvas to add it at
+    the drop position, or simply click the node. 
+    shift+drag on empty canvas draws a box-select marquee.
 -->
 <script>
 import { onMount, onDestroy } from 'svelte';
-import { kinetic, addNode, removeNode, addWire, removeWire,
-         moveNodeOnCanvas, toggleNode } from '../../stores/kinetic.svelte.js';
-import { NODE_BY_ID, NODE_CATEGORIES } from '../../lib/aerolux/nodeRegistry.js';
+import {
+    kinetic, currentInstances, currentWires, addNode, removeNode, moveNode, addWire, removeWire,
+    selectNode, selectWire, toggleNode, openComposite, closeComposite,
+    groupSelectionIntoComposite, bakeSelection, duplicateNode, ungroupComposite,
+} from '../../stores/kinetic.svelte.js';
+import { editor } from '../../stores/velocity.svelte.js';
+import { NODE_DEFS } from '../../lib/aerolux/kinetic/nodeRegistry.js';
+import { reachableInstanceIds } from '../../lib/aerolux/kinetic/compileGraph.js';
 import { showToast } from '../../lib/aerolux/toast.js';
+import { registerDropHandler, unregisterDropHandler, requestRename } from '../../stores/kineticUiSignals.svelte.js';
+import GraphBreadcrumb from './GraphBreadcrumb.svelte';
 
-let container;
-let svgEl;
+const NODE_W = 170;
+const NODE_H = 56;
+const DEFAULT_PAN = { x: 60, y: 40 };
+const DEFAULT_ZOOM = 1;
+const MIN_BOX_SELECT_SIZE = 2; // to ignore an accidental zero-size Shift+click
 
-// Pan / zoom
-let pan  = $state({ x: 60, y: 40 });
-let zoom = $state(1);
+let { boundMultiSelectCount = $bindable(0) } = $props();
+
+let svgEl = $state(null);
+
+// device filter ––––––––––––––––––––––––––––––––––––––––––––––––––––
+let deviceFilterId = $state(null);
+
+const reachableSet = $derived(
+    deviceFilterId
+        ? reachableInstanceIds(currentInstances(), currentWires(), deviceFilterId)
+        : null
+);
+function isDimmed(instanceId) {
+    return reachableSet !== null && !reachableSet.has(instanceId);
+}
+
+// pan / zoom –––––––––––––––––––––––––––––––––––––––––––––––––––––––
+let pan  = $state({ ...DEFAULT_PAN });
+let zoom = $state(DEFAULT_ZOOM);
 let isPanning  = false;
 let panStart   = { x: 0, y: 0 };
 let panOrigin  = { x: 0, y: 0 };
 
-// Wire dragging
+function graphToScreen(gx, gy) { return { x: gx * zoom + pan.x, y: gy * zoom + pan.y }; }
+function screenToGraph(sx, sy) { return { x: (sx - pan.x) / zoom, y: (sy - pan.y) / zoom }; }
+function resetView() { pan = { ...DEFAULT_PAN }; zoom = DEFAULT_ZOOM; }
+
+// wire dragging ––––––––––––––––––––––––––––––––––––––––––––––––––––
 let pendingWire = $state(null);
-// { fromInstanceId, fromPort, startX, startY, curX, curY }
 
-// Node search overlay
-let searchOpen    = $state(false);
-let searchQuery   = $state('');
-let searchPos     = $state({ x: 0, y: 0 });   // graph coords for new node
+// box select (shift+drag on empty canvas) ––––––––––––––––––––––––––
+let boxSelect = $state(null); // {startX, startY, endX, endY} in graph space, or null
 
-// Context menu
-let ctxMenu = $state(null);   // { x, y, instanceId }
+function applyBoxSelect(box) {
+    const x0 = Math.min(box.startX, box.endX), x1 = Math.max(box.startX, box.endX);
+    const y0 = Math.min(box.startY, box.endY), y1 = Math.max(box.startY, box.endY);
+    if (x1 - x0 < MIN_BOX_SELECT_SIZE && y1 - y0 < MIN_BOX_SELECT_SIZE) return;
 
-// Port positions cache: `${instanceId}:${port}` → { x, y } in graph coords
-let portPos = new Map();
-
-function graphToScreen(gx, gy) {
-    return { x: gx * zoom + pan.x, y: gy * zoom + pan.y };
-}
-function screenToGraph(sx, sy) {
-    return { x: (sx - pan.x) / zoom, y: (sy - pan.y) / zoom };
-}
-
-// ── Filtered node list for search ─────────────────────────────────
-const filteredNodes = $derived(
-    kinetic.nodeInstances.filter(n =>
-        !searchQuery ||
-        NODE_BY_ID[n.nodeId]?.label.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-);
-
-const searchResults = $derived(
-    Object.values(NODE_BY_ID).filter(desc =>
-        !searchQuery ||
-        desc.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        desc.category.toLowerCase().includes(searchQuery.toLowerCase())
-    ).slice(0, 12)
-);
-
-// ── Background pan ────────────────────────────────────────────────
-function onBgPointerDown(e) {
-    if (e.target !== svgEl && e.target !== svgEl.querySelector('.ng-bg')) return;
-    if (e.button === 1 || (e.button === 0 && e.altKey)) {
-        isPanning = true;
-        panStart  = { x: e.clientX, y: e.clientY };
-        panOrigin = { ...pan };
-        svgEl.style.cursor = 'grabbing';
+    const next = new Set(multiSelected);
+    for (const inst of currentInstances()) {
+        const gx = inst.position?.x ?? 0, gy = inst.position?.y ?? 0;
+        // AABB intersection between the node card and the marquee.
+        const intersects = gx < x1 && gx + NODE_W > x0 && gy < y1 && gy + NODE_H > y0;
+        if (intersects) next.add(inst.instanceId);
     }
-    ctxMenu = null;
-    searchOpen = false;
+    multiSelected = next;
 }
 
+// node dragging ––––––––––––––––––––––––––––––––––––––––––––––––––––
+let nodeDrag = null;
+
+// multi-select –––––––––––––––––––––––––––––––––––––––––––––––––––––
+let multiSelected = $state(new Set());
+
+function clearMultiSelect() { multiSelected = new Set(); }
+
+function toggleMultiSelect(instanceId) {
+    const next = new Set(multiSelected);
+    next.has(instanceId) ? next.delete(instanceId) : next.add(instanceId);
+    multiSelected = next;
+}
+
+const multiSelectCount = $derived(multiSelected.size);
+
+$effect(() => { boundMultiSelectCount = multiSelectCount; });
+
+$effect(() => {
+    void kinetic.graphPath.length;
+    clearMultiSelect();
+});
+
+function handleGroup() {
+    if (multiSelectCount < 1) return;
+    const result = groupSelectionIntoComposite([...multiSelected], 'Composite');
+    if (!result.ok) {
+        showToast(result.reason ?? 'Could not group selection', 'error', 5000);
+        return;
+    }
+    clearMultiSelect();
+    selectNode(result.composite.instanceId);
+    showToast('Grouped into a composite', 'success');
+}
+
+function handleBake() {
+    if (multiSelectCount < 1) return;
+    const engineContext = { palette: editor.palette, devices: kinetic.devices };
+    const result = bakeSelection([...multiSelected], 'Composite', engineContext, {});
+    if (!result.ok) {
+        showToast(result.reason ?? 'Could not bake selection', 'error', 5000);
+        return;
+    }
+    clearMultiSelect();
+    selectNode(result.composite.instanceId);
+    showToast('Grouped and baked', 'success');
+}
+
+function handleDuplicateSelection() {
+    if (multiSelectCount > 0) {
+        const ids = [...multiSelected];
+        clearMultiSelect();
+        for (const id of ids) duplicateNode(id);
+        showToast(`Duplicated ${ids.length} node(s)`, 'success', 2000);
+    } else if (kinetic.selectedInstanceId) {
+        duplicateNode(kinetic.selectedInstanceId);
+    }
+}
+
+// node search overlay ––––––––––––––––––––––––––––––––––––––––––––––
+let searchOpen  = $state(false);
+let searchQuery = $state('');
+let searchPos   = $state({ x: 0, y: 0 });
+
+// internal:true entries (groupInput/groupInputB/composite) are produced
+// only by grouping; never offered here.
+const nodeDefList = Object.values(NODE_DEFS).filter(d => !d.internal);
+const searchResults = $derived(
+    searchQuery.trim() === ''
+        ? nodeDefList
+        : nodeDefList.filter(d =>
+            d.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            d.category.toLowerCase().includes(searchQuery.toLowerCase())
+          )
+);
+
+function defaultParamsFor(nodeId) {
+    const def = NODE_DEFS[nodeId];
+    const params = {};
+    if (!def) return params;
+    for (const [key, p] of Object.entries(def.params ?? {})) params[key] = p.default;
+    return params;
+}
+
+// context menu –––––––––––––––––––––––––––––––––––––––––––––––––––––
+let ctxMenu = $state(null);
+const ctxMenuInstance = $derived(
+    ctxMenu ? currentInstances().find(n => n.instanceId === ctxMenu.instanceId) ?? null : null
+);
+
+function onCtxDuplicate() {
+    if (!ctxMenu) return;
+    duplicateNode(ctxMenu.instanceId);
+    ctxMenu = null;
+}
+function onCtxRename() {
+    if (!ctxMenu) return;
+    selectNode(ctxMenu.instanceId);
+    requestRename(ctxMenu.instanceId);
+    ctxMenu = null;
+}
+function onCtxDisconnect() {
+    if (!ctxMenu) return;
+    const id = ctxMenu.instanceId;
+    for (const w of currentWires().filter(w => w.fromId === id || w.toId === id)) removeWire(w.id);
+    ctxMenu = null;
+}
+function onCtxUngroup() {
+    if (!ctxMenu) return;
+    const result = ungroupComposite(ctxMenu.instanceId);
+    if (!result.ok) showToast(result.reason ?? 'Could not ungroup', 'error', 4000);
+    else showToast('Ungrouped', 'success');
+    ctxMenu = null;
+}
+
+// port positions –––––––––––––––––––––––––––––––––––––––––––––––––––
+function portPos(instance, port) {
+    const gx = instance.position?.x ?? 0;
+    const gy = instance.position?.y ?? 0;
+    if (port === 'output') return { x: gx + NODE_W, y: gy + NODE_H * 0.5 };
+    if (port === 'inputB') return { x: gx, y: gy + NODE_H * 0.7 };
+    return { x: gx, y: gy + NODE_H * 0.3 };
+}
+
+function wirePath(x1, y1, x2, y2) {
+    const dx = Math.abs(x2 - x1) * 0.5;
+    return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+}
+
+// per-instance port-count override (composites: 0/1/2 depending on what
+// was grouped, per instance. see groupSelectionIntoComposite in the
+// store). falls back to the registry default for every other node type.
+function hasInputFor(instance, def) { return instance.hasInput ?? def?.hasInput; }
+function isMultiInputFor(instance, def) { return instance.isMultiInput ?? def?.isMultiInput; }
+
+// background pan / box-select ––––––––––––––––––––––––––––––––––––––
+function onBgPointerDown(e) {
+    const isBg = e.target === svgEl || e.target.classList.contains('ng-bg');
+    if (isBg && e.button === 0) {
+        if (e.shiftKey) {
+            const rect = svgEl.getBoundingClientRect();
+            const start = screenToGraph(e.clientX - rect.left, e.clientY - rect.top);
+            boxSelect = { startX: start.x, startY: start.y, endX: start.x, endY: start.y };
+        } else {
+            isPanning = true;
+            panStart  = { x: e.clientX, y: e.clientY };
+            panOrigin = { ...pan };
+            svgEl.style.cursor = 'grabbing';
+        }
+    }
+    if (isBg) {
+        searchOpen = false;
+        ctxMenu = null;
+        if (!e.shiftKey && !e.metaKey && !e.ctrlKey) clearMultiSelect();
+    }
+}
 function onBgPointerMove(e) {
     if (isPanning) {
         pan = {
@@ -80,161 +239,203 @@ function onBgPointerMove(e) {
             y: panOrigin.y + (e.clientY - panStart.y),
         };
     }
+    if (boxSelect) {
+        const rect = svgEl.getBoundingClientRect();
+        const cur = screenToGraph(e.clientX - rect.left, e.clientY - rect.top);
+        boxSelect = { ...boxSelect, endX: cur.x, endY: cur.y };
+    }
     if (pendingWire) {
         const rect = svgEl.getBoundingClientRect();
-        pendingWire.curX = e.clientX - rect.left;
-        pendingWire.curY = e.clientY - rect.top;
+        pendingWire = { ...pendingWire, cx: e.clientX - rect.left, cy: e.clientY - rect.top };
     }
 }
-
-function onBgPointerUp(e) {
+function onBgPointerUp() {
     isPanning = false;
-    svgEl.style.cursor = '';
-    if (pendingWire) {
-        pendingWire = null;   // cancelled
+    if (svgEl) svgEl.style.cursor = '';
+    if (pendingWire) pendingWire = null;
+    if (boxSelect) {
+        applyBoxSelect(boxSelect);
+        boxSelect = null;
     }
 }
-
 function onBgWheel(e) {
     e.preventDefault();
-    const rect     = svgEl.getBoundingClientRect();
-    const mx       = e.clientX - rect.left;
-    const my       = e.clientY - rect.top;
-    const factor   = e.deltaY < 0 ? 1.1 : 0.9;
-    const newZoom  = Math.max(0.25, Math.min(3, zoom * factor));
+    const rect    = svgEl.getBoundingClientRect();
+    const mx      = e.clientX - rect.left;
+    const my      = e.clientY - rect.top;
+    const factor  = e.deltaY < 0 ? 1.1 : 0.9;
+    const newZoom = Math.max(0.25, Math.min(3, zoom * factor));
     pan = {
         x: mx - (mx - pan.x) * (newZoom / zoom),
         y: my - (my - pan.y) * (newZoom / zoom),
     };
     zoom = newZoom;
 }
-
 function onBgDblClick(e) {
+    const isBg = e.target === svgEl || e.target.classList.contains('ng-bg');
+    if (!isBg) return;
     const rect  = svgEl.getBoundingClientRect();
-    const gp    = screenToGraph(e.clientX - rect.left, e.clientY - rect.top);
-    searchPos   = gp;
+    searchPos   = screenToGraph(e.clientX - rect.left, e.clientY - rect.top);
     searchOpen  = true;
     searchQuery = '';
 }
 
-// ── Node dragging ─────────────────────────────────────────────────
-let nodeDrag = null;
+// drop handler for NodeMenu's pointer-based drag –––––––––––––––––––
+// registered with the shared kineticUiSignals store on mount; called
+// directly (not via a window listener) by NodeMenu.svelte's own pointerup
+// handler once a drag has actually crossed the move threshold. owns the
+// coordinate math (screenToGraph) and hit-testing against its own bounds,
+// since NodeMenu has no idea where the canvas is or how it's panned/zoomed.
+function tryDropNode(nodeId, clientX, clientY) {
+    if (!svgEl || !nodeId) return;
+    const def = NODE_DEFS[nodeId];
+    if (!def || def.internal) return;
+    const rect = svgEl.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+        return; // dropped outside this canvas entirely. rip
+    }
+    const pos = screenToGraph(clientX - rect.left, clientY - rect.top);
+    // centre the new card under the cursor rather than anchoring its
+    // top-left corner there.
+    addNode(nodeId, defaultParamsFor(nodeId), { x: pos.x - NODE_W / 2, y: pos.y - NODE_H / 2 });
+}
 
+onMount(() => registerDropHandler(tryDropNode));
+onDestroy(() => unregisterDropHandler(tryDropNode));
+
+// node drag / select –––––––––––––––––––––––––––––––––––––––––––––––
 function onNodePointerDown(e, instanceId) {
     e.stopPropagation();
     if (e.button !== 0) return;
-    const node = kinetic.nodeInstances.find(n => n.instanceId === instanceId);
-    if (!node) return;
-    kinetic.selectedNodeIds = new Set([instanceId]);
+
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+        toggleMultiSelect(instanceId);
+        return; // modifier-click is multi-select only, doesn't start a drag or change single-selection
+    }
+
+    clearMultiSelect();
+    selectNode(instanceId);
+    const inst = currentInstances().find(n => n.instanceId === instanceId);
+    if (!inst) return;
     nodeDrag = {
         instanceId,
         startX: e.clientX, startY: e.clientY,
-        origX: node.position?.x ?? 0, origY: node.position?.y ?? 0,
+        origX: inst.position?.x ?? 0, origY: inst.position?.y ?? 0,
     };
     window.addEventListener('pointermove', onNodeDragMove);
-    window.addEventListener('pointerup',   onNodeDragUp);
+    window.addEventListener('pointerup', onNodeDragUp);
 }
-
 function onNodeDragMove(e) {
     if (!nodeDrag) return;
     const dx = (e.clientX - nodeDrag.startX) / zoom;
     const dy = (e.clientY - nodeDrag.startY) / zoom;
-    moveNodeOnCanvas(nodeDrag.instanceId, nodeDrag.origX + dx, nodeDrag.origY + dy);
+    moveNode(nodeDrag.instanceId, nodeDrag.origX + dx, nodeDrag.origY + dy);
 }
-
 function onNodeDragUp() {
     nodeDrag = null;
     window.removeEventListener('pointermove', onNodeDragMove);
-    window.removeEventListener('pointerup',   onNodeDragUp);
+    window.removeEventListener('pointerup', onNodeDragUp);
 }
-
-// ── Port interaction ──────────────────────────────────────────────
-
-function onPortPointerDown(e, instanceId, port, isOutput) {
-    e.stopPropagation();
-    if (!isOutput) return;   // can only drag from outputs
-    const rect = svgEl.getBoundingClientRect();
-    pendingWire = {
-        fromInstanceId: instanceId,
-        fromPort: port,
-        startX: e.clientX - rect.left,
-        startY: e.clientY - rect.top,
-        curX:   e.clientX - rect.left,
-        curY:   e.clientY - rect.top,
-    };
-}
-
-function onPortPointerUp(e, instanceId, port, isOutput) {
-    if (!pendingWire || isOutput) return;
-    e.stopPropagation();
-    if (pendingWire.fromInstanceId === instanceId) { pendingWire = null; return; }
-    addWire(pendingWire.fromInstanceId, pendingWire.fromPort, instanceId, port);
-    pendingWire = null;
-}
-
-// ── Node right-click ──────────────────────────────────────────────
-
 function onNodeRightClick(e, instanceId) {
     e.preventDefault();
     e.stopPropagation();
     ctxMenu = { x: e.clientX, y: e.clientY, instanceId };
 }
-
-// ── Node card dimensions ──────────────────────────────────────────
-const NODE_W = 180;
-const NODE_H_BASE = 60;
-
-function nodeHeight(desc) {
-    return NODE_H_BASE + Object.keys(desc?.params ?? {}).length * 0;
+function onNodeDblClick(e, instance) {
+    e.stopPropagation();
+    if (instance.nodeId === 'composite') {
+        openComposite(instance.instanceId); // multi-select clearing handled by the graphPath $effect above
+    }
 }
 
-// ── Wire path ─────────────────────────────────────────────────────
-function wirePath(x1, y1, x2, y2) {
-    const dx = Math.abs(x2 - x1) * 0.5;
-    return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+// ports / wires ––––––––––––––––––––––––––––––––––––––––––––––––––––
+function onOutputPortDown(e, instanceId) {
+    e.stopPropagation();
+    const rect = svgEl.getBoundingClientRect();
+    pendingWire = {
+        fromId: instanceId, fromPort: 'output',
+        cx: e.clientX - rect.left, cy: e.clientY - rect.top,
+    };
+}
+function onInputPortUp(e, instanceId, port) {
+    e.stopPropagation();
+    if (!pendingWire || pendingWire.fromId === instanceId) { pendingWire = null; return; }
+    addWire(pendingWire.fromId, pendingWire.fromPort, instanceId, port);
+    pendingWire = null;
 }
 
-function getPortScreenPos(instanceId, port) {
-    return portPos.get(`${instanceId}:${port}`) ?? { x: 0, y: 0 };
-}
-
-// Port positions are tracked via ref callbacks on the SVG foreignObject port elements
-// We use a simple approximation based on node position + known layout:
-function computePortPos(instance, port) {
-    const gx = instance.position?.x ?? 0;
-    const gy = instance.position?.y ?? 0;
-    const desc = NODE_BY_ID[instance.nodeId];
-    const h   = nodeHeight(desc);
-    if (port === 'output') return { x: gx + NODE_W, y: gy + h / 2 };
-    if (port === 'input')  return { x: gx,         y: gy + h * 0.35 };
-    if (port === 'inputB') return { x: gx,         y: gy + h * 0.65 };
-    return { x: gx, y: gy };
-}
-
-// ── Category colour ───────────────────────────────────────────────
-function categoryColor(category) {
-    return NODE_CATEGORIES[category?.toUpperCase()]?.timelineColor
-        ?? NODE_BY_ID[category]?.timelineColor
-        ?? 'hsl(220,15%,50%)';
-}
-
-// Search add
+// search add –––––––––––––––––––––––––––––––––––––––––––––––––––––––
 function addFromSearch(nodeId) {
-    addNode(nodeId, { x: searchPos.x, y: searchPos.y });
-    searchOpen  = false;
+    addNode(nodeId, defaultParamsFor(nodeId), { x: searchPos.x, y: searchPos.y });
+    searchOpen = false;
     searchQuery = '';
 }
 
-const knobParams = $derived.by(() =>
-    Object.entries(desc?.params ?? {})
-        .filter(([,p]) =>
-            p.type === 'knob' || p.type === 'float'
-        )
-        .slice(0, 2)
-);
+// keyboard –––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+function isTyping(e) {
+    const tag = e.target?.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable;
+}
+function onKeyDown(e) {
+    if (isTyping(e)) return;
+
+    const mod = e.metaKey || e.ctrlKey;
+
+    if (mod && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        handleDuplicateSelection();
+        return;
+    }
+    if (mod && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        multiSelected = new Set(currentInstances().map(n => n.instanceId));
+        return;
+    }
+    if (mod && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        handleGroup();
+        return;
+    }
+    if (e.key === 'Home' || e.key === '.') {
+        e.preventDefault();
+        resetView();
+        return;
+    }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (multiSelectCount > 0) {
+            for (const id of multiSelected) removeNode(id);
+            clearMultiSelect();
+        } else if (kinetic.selectedInstanceId) removeNode(kinetic.selectedInstanceId);
+        else if (kinetic.selectedWireId) removeWire(kinetic.selectedWireId);
+    }
+    if (e.key === 'Escape') {
+        if (boxSelect) {
+            boxSelect = null;
+        } else if (searchOpen || ctxMenu || multiSelectCount > 0) {
+            searchOpen = false;
+            ctxMenu = null;
+            clearMultiSelect();
+        } else if (kinetic.graphPath.length) {
+            // nothing else to dismiss; back out one composite level, so
+            // the breadcrumb isn't the only way out of a nested graph.
+            closeComposite();
+        }
+    }
+}
+onMount(() => window.addEventListener('keydown', onKeyDown));
+onDestroy(() => window.removeEventListener('keydown', onKeyDown));
+
+// bound API for the parent page (KineticPage.svelte's top bar) –––––
+// lets a page-level Bake/Group button act on whatever's currently 
+// multi-selected in the graph, without promoting multi-select
+// itself into shared store state.
+export function groupCurrentSelection() { handleGroup(); }
+export function bakeCurrentSelection() { handleBake(); }
+export function getMultiSelectCount() { return multiSelectCount; }
 </script>
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<GraphBreadcrumb />
+
 <svg
     bind:this={svgEl}
     class="ng-canvas"
@@ -245,7 +446,6 @@ const knobParams = $derived.by(() =>
     ondblclick={onBgDblClick}
     oncontextmenu={e => e.preventDefault()}
 >
-    <!-- Background grid -->
     <defs>
         <pattern id="ng-grid" width={20 * zoom} height={20 * zoom}
             x={pan.x % (20 * zoom)} y={pan.y % (20 * zoom)}
@@ -255,125 +455,121 @@ const knobParams = $derived.by(() =>
     </defs>
     <rect class="ng-bg" width="100%" height="100%" fill="url(#ng-grid)" />
 
-    <!-- Transform group for pan/zoom -->
     <g transform="translate({pan.x},{pan.y}) scale({zoom})">
 
-        <!-- Wires -->
-        {#each kinetic.wires as wire (wire.id)}
-            {@const fromPos = computePortPos(
-                kinetic.nodeInstances.find(n => n.instanceId === wire.fromInstanceId) ?? {},
-                wire.fromPort
-            )}
-            {@const toPos = computePortPos(
-                kinetic.nodeInstances.find(n => n.instanceId === wire.toInstanceId) ?? {},
-                wire.toPort
-            )}
-            <path
-                class="ng-wire {kinetic.selectedWireId === wire.id ? 'selected' : ''}"
-                d={wirePath(fromPos.x, fromPos.y, toPos.x, toPos.y)}
-                onclick={() => kinetic.selectedWireId = wire.id}
-                ondblclick={() => { removeWire(wire.id); kinetic.selectedWireId = null; }}
-            />
+        {#each currentWires() as wire (wire.id)}
+            {@const fromInst = currentInstances().find(n => n.instanceId === wire.fromId)}
+            {@const toInst   = currentInstances().find(n => n.instanceId === wire.toId)}
+            {#if fromInst && toInst}
+                {@const fp = portPos(fromInst, wire.fromPort)}
+                {@const tp = portPos(toInst, wire.toPort)}
+                <path
+                    class="ng-wire {kinetic.selectedWireId === wire.id ? 'selected' : ''}"
+                    d={wirePath(fp.x, fp.y, tp.x, tp.y)}
+                    onclick={() => selectWire(wire.id)}
+                    ondblclick={() => removeWire(wire.id)}
+                />
+            {/if}
         {/each}
 
-        <!-- Pending wire -->
         {#if pendingWire}
-            {@const fromPos = computePortPos(
-                kinetic.nodeInstances.find(n => n.instanceId === pendingWire.fromInstanceId) ?? {},
-                pendingWire.fromPort
-            )}
-            <path class="ng-wire-pending"
-                d={wirePath(
-                    fromPos.x, fromPos.y,
-                    (pendingWire.curX - pan.x) / zoom,
-                    (pendingWire.curY - pan.y) / zoom
-                )}
-            />
+            {@const fromInst = currentInstances().find(n => n.instanceId === pendingWire.fromId)}
+            {#if fromInst}
+                {@const fp  = portPos(fromInst, pendingWire.fromPort)}
+                {@const tgx = (pendingWire.cx - pan.x) / zoom}
+                {@const tgy = (pendingWire.cy - pan.y) / zoom}
+                <path class="ng-wire-pending" d={wirePath(fp.x, fp.y, tgx, tgy)} />
+            {/if}
         {/if}
 
-        <!-- Nodes -->
-        {#each kinetic.nodeInstances as instance (instance.instanceId)}
-            {@const desc = NODE_BY_ID[instance.nodeId]}
-            {@const gx   = instance.position?.x ?? 0}
-            {@const gy   = instance.position?.y ?? 0}
-            {@const h    = nodeHeight(desc)}
-            {@const col  = desc?.timelineColor ?? 'hsl(220,15%,50%)'}
-            {@const selected = kinetic.selectedNodeIds.has(instance.instanceId)}
+        {#each currentInstances() as instance (instance.instanceId)}
+            {@const def = NODE_DEFS[instance.nodeId]}
+            {@const gx  = instance.position?.x ?? 0}
+            {@const gy  = instance.position?.y ?? 0}
+            {@const col = def?.color ?? 'hsl(220,15%,50%)'}
+            {@const selected = instance.instanceId === kinetic.selectedInstanceId}
+            {@const multiSel = multiSelected.has(instance.instanceId)}
 
             <g
-                class="ng-node {selected ? 'selected' : ''} {!instance.enabled ? 'bypassed' : ''}"
+                class="ng-node {selected ? 'selected' : ''} {multiSel ? 'multi-selected' : ''} {!instance.enabled ? 'bypassed' : ''} {isDimmed(instance.instanceId) ? 'dimmed' : ''}"
                 transform="translate({gx},{gy})"
                 onpointerdown={e => onNodePointerDown(e, instance.instanceId)}
                 oncontextmenu={e => onNodeRightClick(e, instance.instanceId)}
+                ondblclick={e => onNodeDblClick(e, instance)}
             >
-                <!-- Node body -->
-                <rect x="0" y="0" width={NODE_W} height={h} rx="8"
-                    fill="rgba(18,22,40,0.90)"
-                    stroke={selected ? col : 'rgba(255,255,255,0.10)'}
-                    stroke-width={selected ? 1.5 : 1} />
+                <rect x="0" y="0" width={NODE_W} height={NODE_H} rx="8"
+                    fill="rgba(18,22,40,0.92)"
+                    stroke={multiSel ? 'var(--color-warning)' : (selected ? col : 'rgba(255,255,255,0.10)')}
+                    stroke-width={multiSel ? 2 : (selected ? 1.5 : 1)} />
+                <rect x="0" y="0" width={NODE_W} height="4" rx="4" fill={col} />
+                <rect x="0" y="2" width={NODE_W} height="2" fill={col} />
 
-                <!-- Category colour bar at top -->
-                <rect x="0" y="0" width={NODE_W} height="4" rx="4"
-                    fill={col} />
-                <rect x="0" y="2" width={NODE_W} height="2"
-                    fill={col} />
+                <text x="12" y="26" class="ng-node-icon">{def?.icon ?? '?'}</text>
+                <text x="30" y="26" class="ng-node-label">{instance.label || def?.label || instance.nodeId}</text>
 
-                <!-- Icon + label -->
-                <text x="12" y="26" class="ng-node-icon">{desc?.icon ?? '?'}</text>
-                <text x="30" y="26" class="ng-node-label">{desc?.label ?? instance.nodeId}</text>
-
-                <!-- Bypass indicator -->
+                {#if instance.nodeId === 'composite'}
+                    <text x={NODE_W - 24} y="26" class="ng-node-composite-badge">▣<title>Double-click to open</title></text>
+                {/if}
                 {#if !instance.enabled}
                     <text x={NODE_W - 10} y="26" class="ng-node-bypass">⏸</text>
                 {/if}
 
-                <!-- Param summary (first 2 knob/float params) -->
-                {#each knobParams as [key, pd], i}
-                    <text x="12" y={42 + i * 14} class="ng-param-text">
-                        {pd.label}: {instance.params[key]?.toFixed?.(pd.decimals ?? 1) ?? instance.params[key]}{pd.unit ?? ''}
-                    </text>
-                {/each}
-
-                <!-- Input port(s) -->
-                {#if desc?.hasInput !== false} 
-                <circle class="ng-port ng-port-in"
-                    cx="0" cy={h * 0.35} r="5"
-                    onpointerdown={e => onPortPointerDown(e, instance.instanceId, 'input', false)}
-                    onpointerup={e => onPortPointerUp(e, instance.instanceId, 'input', false)}
-                    title="Input A"
-                />
-                {#if desc?.isMultiInput}
-                    <circle class="ng-port ng-port-in ng-port-b"
-                        cx="0" cy={h * 0.65} r="5"
-                        onpointerdown={e => onPortPointerDown(e, instance.instanceId, 'inputB', false)}
-                        onpointerup={e => onPortPointerUp(e, instance.instanceId, 'inputB', false)}
-                        title="Input B (overlay)"
-                    />
+                {#if hasInputFor(instance, def)}
+                    <circle class="ng-port ng-port-in" cx="0" cy={NODE_H * 0.3} r="5"
+                        onpointerdown={e => e.stopPropagation()}
+                        onpointerup={e => onInputPortUp(e, instance.instanceId, 'input')} />
                 {/if}
+                {#if isMultiInputFor(instance, def)}
+                    <circle class="ng-port ng-port-in ng-port-b" cx="0" cy={NODE_H * 0.7} r="5"
+                        onpointerdown={e => e.stopPropagation()}
+                        onpointerup={e => onInputPortUp(e, instance.instanceId, 'inputB')} />
                 {/if}
-
-                <!-- Output port -->
-                <circle class="ng-port ng-port-out"
-                    cx={NODE_W} cy={h * 0.5} r="5"
-                    onpointerdown={e => onPortPointerDown(e, instance.instanceId, 'output', true)}
-                    title="Output"
-                />
+                <circle class="ng-port ng-port-out" cx={NODE_W} cy={NODE_H * 0.5} r="5"
+                    onpointerdown={e => onOutputPortDown(e, instance.instanceId)} />
             </g>
         {/each}
 
+        {#if boxSelect}
+            {@const bx0 = Math.min(boxSelect.startX, boxSelect.endX)}
+            {@const by0 = Math.min(boxSelect.startY, boxSelect.endY)}
+            {@const bw  = Math.abs(boxSelect.endX - boxSelect.startX)}
+            {@const bh  = Math.abs(boxSelect.endY - boxSelect.startY)}
+            <rect class="ng-box-select" x={bx0} y={by0} width={bw} height={bh} />
+        {/if}
+
     </g><!-- end pan/zoom group -->
 
-    <!-- Empty state -->
-    {#if kinetic.nodeInstances.length === 0}
+    {#if currentInstances().length === 0}
         <text x="50%" y="45%" class="ng-empty-h" text-anchor="middle">No nodes yet</text>
-        <text x="50%" y="52%" class="ng-empty-s" text-anchor="middle">
-            Double-click to add a node · Drag nodes from the menu
-        </text>
+        <text x="50%" y="52%" class="ng-empty-s" text-anchor="middle">Double-click, or drag from the Node Menu, to add a node</text>
     {/if}
-
 </svg>
 
-<!-- Node search overlay (screen space, not inside SVG transform) -->
+{#if kinetic.devices.length > 1}
+    <div class="ng-device-filter">
+        <button class="ng-filter-pill {deviceFilterId === null ? 'active' : ''}" onclick={() => deviceFilterId = null}>
+            All
+        </button>
+        {#each kinetic.devices as device (device.id)}
+            <button
+                class="ng-filter-pill {deviceFilterId === device.id ? 'active' : ''}"
+                onclick={() => deviceFilterId = device.id}
+                title="Dim nodes that don't reach {device.instanceNo}"
+            >{device.instanceNo}{device.isPrimary ? ' ★' : ''}</button>
+        {/each}
+    </div>
+{/if}
+
+{#if multiSelectCount > 0}
+    <div class="ng-multiselect-bar">
+        <span class="al-dim" style="font-size:11px">{multiSelectCount} selected</span>
+        <button class="al-btn al-btn-sm" onclick={handleDuplicateSelection}>⧉ Duplicate</button>
+        <button class="al-btn al-btn-sm al-btn-blue" onclick={handleGroup}>▣ Group</button>
+        <button class="al-btn al-btn-sm al-btn-green" onclick={handleBake}>⬢ Group + Bake</button>
+        <button class="al-btn al-btn-sm al-btn-ghost" onclick={clearMultiSelect}>Cancel</button>
+    </div>
+{/if}
+
 {#if searchOpen}
     {@const sp = graphToScreen(searchPos.x, searchPos.y)}
     <div class="ng-search-overlay" style="left:{sp.x}px;top:{sp.y}px">
@@ -382,29 +578,44 @@ const knobParams = $derived.by(() =>
             placeholder="Search nodes…"
             autofocus
             onkeydown={e => {
-                if (e.key === 'Escape') { searchOpen = false; }
+                if (e.key === 'Escape') searchOpen = false;
                 if (e.key === 'Enter' && searchResults.length) addFromSearch(searchResults[0].id);
             }}
         />
         <div class="ng-search-list">
-            {#each searchResults as desc}
-                <button class="ng-search-item" onclick={() => addFromSearch(desc.id)}>
-                    <span>{desc.icon}</span>
-                    <span class="ng-search-label">{desc.label}</span>
-                    <span class="ng-search-cat">{desc.category}</span>
+            {#each searchResults as def}
+                <button class="ng-search-item" onclick={() => addFromSearch(def.id)}>
+                    <span>{def.icon}</span>
+                    <span class="ng-search-label">{def.label}</span>
+                    <span class="ng-search-cat">{def.category}</span>
                 </button>
             {/each}
+            {#if !searchResults.length}
+                <p class="ng-search-empty">No matching nodes</p>
+            {/if}
         </div>
     </div>
 {/if}
 
-<!-- Context menu -->
 {#if ctxMenu}
-    <div class="ng-ctx-menu" style="left:{ctxMenu.x}px;top:{ctxMenu.y}px"
-        onmouseleave={() => ctxMenu = null}>
+    <div class="ng-ctx-menu" style="left:{ctxMenu.x}px;top:{ctxMenu.y}px" onmouseleave={() => ctxMenu = null}>
         <button class="ng-ctx-item" onclick={() => { toggleNode(ctxMenu.instanceId); ctxMenu = null; }}>
             Toggle bypass
         </button>
+        <button class="ng-ctx-item" onclick={onCtxDuplicate}>
+            Duplicate
+        </button>
+        <button class="ng-ctx-item" onclick={onCtxRename}>
+            Rename…
+        </button>
+        <button class="ng-ctx-item" onclick={onCtxDisconnect}>
+            Disconnect all wires
+        </button>
+        {#if ctxMenuInstance?.nodeId === 'composite'}
+            <button class="ng-ctx-item" onclick={onCtxUngroup}>
+                Ungroup
+            </button>
+        {/if}
         <button class="ng-ctx-item danger" onclick={() => { removeNode(ctxMenu.instanceId); ctxMenu = null; }}>
             Delete node
         </button>
@@ -421,8 +632,8 @@ const knobParams = $derived.by(() =>
     user-select: none;
     background: rgba(8,10,22,0.6);
 }
+.ng-bg { cursor: default; }
 
-/* Wires */
 .ng-wire {
     fill:           none;
     stroke:         rgba(255,255,255,0.25);
@@ -432,19 +643,60 @@ const knobParams = $derived.by(() =>
 }
 .ng-wire:hover    { stroke: rgba(255,255,255,0.55); stroke-width: 4; }
 .ng-wire.selected { stroke: var(--color-accent); stroke-width: 5; }
-.ng-wire-pending  { fill: none; stroke: var(--color-accent); stroke-width: 2.5; stroke-dasharray: 5 3; }
+.ng-wire-pending  { fill: none; stroke: var(--color-accent); stroke-width: 2.5; stroke-dasharray: 5 3; pointer-events: none; }
 
-/* Nodes */
-.ng-node         { cursor: grab; }
-.ng-node:active  { cursor: grabbing; }
-.ng-node.bypassed{ opacity: 0.4; }
+.ng-box-select {
+    fill:            var(--color-accent-subtle);
+    stroke:          var(--color-accent);
+    stroke-width:    1.5;
+    stroke-dasharray: 4 3;
+    pointer-events:  none;
+    vector-effect:   non-scaling-stroke;
+}
+
+.ng-node             { cursor: grab; }
+.ng-node:active       { cursor: grabbing; }
+.ng-node.bypassed     { opacity: 0.4; }
+.ng-node.dimmed       { opacity: 0.18; }
+.ng-node.multi-selected { filter: drop-shadow(0 0 4px var(--color-warning-glow)); }
+
+.ng-device-filter {
+    position: absolute;
+    top: 10px; left: 10px;
+    display: flex; gap: 4px;
+    z-index: 20;
+}
+.ng-filter-pill {
+    padding: 4px 10px;
+    border: 1px solid var(--color-border-bright);
+    border-radius: var(--radius-full);
+    background: var(--color-glass-header);
+    backdrop-filter: blur(8px);
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.ng-filter-pill:hover  { background: var(--color-surface-2); color: var(--color-text); }
+.ng-filter-pill.active { background: var(--color-accent-subtle); border-color: var(--color-accent-border); color: var(--color-accent-text); }
+
+.ng-multiselect-bar {
+    position: absolute;
+    top: 10px; right: 10px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--color-warning-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-warning-subtle);
+    backdrop-filter: blur(10px);
+    z-index: 20;
+}
 
 .ng-node-icon  { font-size: 13px; fill: rgba(255,255,255,0.7); dominant-baseline: middle; }
 .ng-node-label { font-size: 12px; fill: #e8e4da; font-weight: 600; dominant-baseline: middle; font-family: inherit; }
 .ng-node-bypass{ font-size: 11px; fill: rgba(248,113,113,0.8); text-anchor: end; dominant-baseline: middle; }
-.ng-param-text { font-size: 10px; fill: rgba(255,255,255,0.35); font-family: 'Geist Mono', monospace; dominant-baseline: middle; }
+.ng-node-composite-badge { font-size: 11px; fill: rgba(255,255,255,0.5); text-anchor: end; dominant-baseline: middle; }
 
-/* Ports */
 .ng-port {
     cursor:         crosshair;
     stroke-width:   2;
@@ -455,11 +707,9 @@ const knobParams = $derived.by(() =>
 .ng-port-b   { fill: rgba(248,113,113,0.6);stroke: #f87171; }
 .ng-port:hover { r: 7; }
 
-/* Empty state */
 .ng-empty-h { font-size: 18px; fill: rgba(255,255,255,0.2); font-weight: 600; }
 .ng-empty-s { font-size: 13px; fill: rgba(255,255,255,0.12); }
 
-/* Search overlay */
 .ng-search-overlay {
     position:  fixed;
     z-index:   200;
@@ -495,12 +745,12 @@ const knobParams = $derived.by(() =>
 .ng-search-item:hover { background: var(--color-surface-2); color: var(--color-text); }
 .ng-search-label { flex: 1; font-weight: 500; }
 .ng-search-cat   { font-size: 10px; color: var(--color-text-dim); }
+.ng-search-empty { padding: 10px 12px; font-size: 11px; color: var(--color-text-dim); }
 
-/* Context menu */
 .ng-ctx-menu {
     position:      fixed;
     z-index:       300;
-    min-width:     140px;
+    min-width:     150px;
     background:    var(--color-glass-modal);
     border:        1px solid var(--color-border-bright);
     border-radius: var(--radius-md);

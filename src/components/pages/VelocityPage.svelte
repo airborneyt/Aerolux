@@ -21,7 +21,6 @@ import PresetOverlay   from '../preset/PresetOverlay.svelte';
 import HelpModal       from '../modals/HelpModal.svelte';
 import ImportModal     from '../modals/ImportModal.svelte';
 
-import { registerGradient } from '../../stores/kinetic.svelte.js';
 import { gradResult } from '../../stores/velocity.svelte.js';
 
 // $state(null). reactive so keyboard shortcuts see the API after mount
@@ -38,15 +37,8 @@ function openPresets(name = '') {
     presetOpen = true;
 }
 
-// push the current gradient to Kinetic whenever it changes:
-$effect(() => {
-    const gr = gradResult();
-    registerGradient('current', gr);
-});
-
 // push named presets when they are saved:
 // (call this from saveCurrentGradient in preset-manager.js)
-// registerGradient(preset.id, buildGradient(preset.state, ...));
 
 onMount(() => {
     initSound();

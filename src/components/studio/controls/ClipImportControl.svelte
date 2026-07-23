@@ -4,9 +4,9 @@ import { open }     from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { kinetic }  from '../../../stores/kinetic.svelte.js';
 import { showToast } from '../../../lib/aerolux/toast.js';
-import { parseClipFile } from '../../../lib/aerolux/nodes/clipImport.js';
+import { parseClipFile } from '../../../lib/aerolux/kinetic/clipImport.js' ;
 
-let { instanceId, label = 'File', value = 'No file loaded', onchange = () => {} } = $props();
+let { instanceId, label = 'File', value = null, onchange = () => {} } = $props();
 
 let loading = $state(false);
 let fileLabel = typeof value === 'string'
@@ -14,6 +14,24 @@ let fileLabel = typeof value === 'string'
     : value && value.noteOns
         ? 'Loaded clip'
         : 'No file loaded';
+
+// State for the controls
+let transpose = $state(0); // -12 to +12
+let timeStretch = $state(1); // 0.5 to 2.0
+
+// Helper to clamp values
+const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
+
+// Update UI when internal state changes
+function updateUI() {
+    if (value) {
+        onchange({
+            ...value,
+            transpose,
+            timeStretch
+        });
+    }
+}
 
 async function importFile() {
     const path = await open({
@@ -46,7 +64,10 @@ async function importFile() {
 function clearFile() {
     delete kinetic.loadedClips[instanceId];
     fileLabel = 'No file loaded';
+    value = null;
     onchange(null);
+    transpose = 0;
+    timeStretch = 1;
 }
 
 const hasClip = $derived(!!kinetic.loadedClips[instanceId]);
@@ -54,19 +75,26 @@ const hasClip = $derived(!!kinetic.loadedClips[instanceId]);
 
 <div style="display:flex;flex-direction:column;gap:6px">
     <p class="al-label">{label}</p>
+    
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <button class="al-btn al-btn-blue" onclick={importFile} disabled={loading}>
             {loading ? 'Loading…' : '⬆ Load .mid'}
         </button>
         {#if hasClip}
-            <button class="al-btn al-btn-danger" onclick={clearFile}>✕</button>
+            <button class="al-btn al-btn-danger" onclick={clearFile}>✕ Clear</button>
         {/if}
     </div>
-    <p class="al-hint-text">{fileLabel}</p>
+
     {#if hasClip}
         {@const clip = kinetic.loadedClips[instanceId]}
+        
+        <!-- Metadata -->
         <p class="al-hint-text">
             {clip.numTrks} track(s) · {clip.noteOns.length} events
+        </p>
+
+        <p class="al-hint-text">
+            Transpose shifts the pitch relative to the device layout.
         </p>
     {/if}
 </div>

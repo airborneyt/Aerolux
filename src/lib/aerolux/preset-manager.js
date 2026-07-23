@@ -32,8 +32,6 @@ import {
 } from './preset-render.js';
 import { gradToText, safeFilename, downloadText } from './utils.js';
 
-import { registerGradient } from '../../stores/kinetic.svelte.js';
-
 // module state ──────────────────────────────────────────────────────
 
 let localPresets       = [];
@@ -225,8 +223,6 @@ export async function initPresetManager({
                     step: i,
                     velocity: v
                 }));
-
-                registerGradient(preset.id, gr);
             }
         }
 

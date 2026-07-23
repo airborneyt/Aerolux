@@ -3,13 +3,49 @@
 // VirtualLP.svelte — WebGL2 Launchpad preview
 // Colour pipeline: sRGB 6-bit palette → linear light → P3 (if avail)
 // Instanced rendering: one draw call for all pads per frame.
+//
+// SIMPLIFIED (post-audit):
+//   - No more `device` prop / multi-model branching. This component used
+//     to rebuild its own cell layout via a LOCAL buildCells() that called
+//     buildLaunchpadGrid(dev) directly, then bolted on a hand-maintained
+//     top-left "corner" pad (sysexPad 90 -- a light that doesn't exist on
+//     any real Launchpad; always dark in every Kinetic preview, since
+//     nothing in the sampling pipeline ever produced a value for it),
+//     re-tagged the logo cell, and re-added the bottom/mode corners that
+//     midi-layout.js's own buildLaunchpadGrid() ALREADY provides. All of
+//     that is gone: this now just reads getCachedGrid() -- the single
+//     shared, cached cell list midi-layout.js exposes, the same one
+//     sampleDevice.js's getDeviceGrid() reads -- so there is exactly ONE
+//     canonical layout computed once for the whole app, not once per
+//     VirtualLP instance and AGAIN per Kinetic sampling call.
+//   - No more `logoOrMode` prop / "Corner" selector in the Programmer
+//     menu. Logo and mode used to share one coordinate, so a preview had
+//     to arbitrarily pick which one to *show*. They're two genuinely
+//     separate positions now (see midi-layout.js's header) and both
+//     render simultaneously, with their own independently-sampled
+//     colours -- there's nothing left to choose for PREVIEW purposes;
+//     the logo/mode choice only matters at real-hardware-export time
+//     (a per-device setting elsewhere, not something this shared preview
+//     component should own).
+//   - Canvas sizing bug fixed: initGL() used to size the canvas WITHOUT
+//     the devicePixelRatio multiplier applied (`canvas.width = size`),
+//     while the separate reactive $effect correctly used `size * dpr` --
+//     two different canvas-sizing code paths that disagreed, meaning the
+//     very first rendered frame after mount was sized at 1x (blurry on
+//     HiDPI/Retina) until the effect corrected it a moment later. Both
+//     paths now go through one applyCanvasSize() helper.
+//   - Render loop coalesced onto a single shared requestAnimationFrame
+//     driver (frameTicker.js) instead of each VirtualLP instance running
+//     its own independent rAF registration -- see that file's header for
+//     why this matters once several instances are mounted at once (e.g.
+//     MultiDevicePreview.svelte with multiple devices).
 // ════════════════════════════════════════════════════════════════════
 import { onMount, onDestroy } from 'svelte';
-import { buildLaunchpadGrid, cellBySysexPad, ZONE } from '../../lib/aerolux/midi-layout.js';
+import { getCachedGrid } from '../../lib/aerolux/midi-layout.js';
+import { subscribeFrame } from '../../lib/aerolux/frameTicker.js';
 
 // ── Props ─────────────────────────────────────────────────────────
 let {
-    device        = 'LPP2',
     sysexColors   = new Map(),   // Map<sysexPad, [r6,g6,b6]>
     size          = 300,
     interactive   = true,
@@ -17,54 +53,11 @@ let {
     onPadPress    = (/** @type {number} */ _sx) => {},
     onPadRelease  = (/** @type {number} */ _sx) => {},
     brightness    = 1.0,         // 0.0–1.0, applied in linear light
-    logoOrMode    = 'logo',      // 'logo'|'mode' — which drives the shared output
 } = $props();
 
 // ── Layout constants ──────────────────────────────────────────────
 const GAP        = 2.5;   // px between pads
-const CORNER     = 3.5;   // border-radius (used in hit-test shape, not WebGL)
 const MODE_RATIO = 0.55;  // mode-light row height as fraction of normal pad height
-
-// ── Pad definitions ───────────────────────────────────────────────
-// Build from midi-layout so this is the single source of truth.
-// We build for LPP3 (widest profile) and also include all 4 corners
-// plus the mode light as synthetic entries.
-
-// Synthetic zone tags for cells not in midi-layout
-const ZONE_CORNER_TL = 'corner_tl';
-const ZONE_CORNER_TR = 'corner_tr'; // also logo
-const ZONE_CORNER_BL = 'corner_bl';
-const ZONE_CORNER_BR = 'corner_br';
-const ZONE_MODE      = 'mode';
-
-// Build the full cell list once — reactive only to `device` changes.
-// Each entry: { sysexPad, x, y, zone, exportNote }
-// We extend with the 4 corners and mode light as synthetic cells.
-function buildCells(dev) {
-    const base = buildLaunchpadGrid(dev);
-
-    // 4 corners — use coordinate positions matching the 10×10 grid
-    // Top-left  (0,9): SysEx 90
-    // Top-right (9,9): SysEx 99 — logo, already in base as ZONE.LOGO
-    // Bottom-left  (0,0): virtual, no real SysEx on most models
-    // Bottom-right (9,0): virtual
-    // We add corners not already present and tag them clearly.
-    const extra = [
-        { sysexPad: 90,   x: 0,   y: 9, zone: ZONE_CORNER_TL, exportNote: null },
-        // (9,9) logo already exists in base — we tag it additionally as corner_tr below
-        { sysexPad: null, x: 0,   y: 0, zone: ZONE_CORNER_BL, exportNote: null },
-        { sysexPad: null, x: 9,   y: 0, zone: ZONE_CORNER_BR, exportNote: null },
-        // Mode light — below the bottom edge, centred at x=4.5, y=-1
-        { sysexPad: 99,   x: 4.5, y: -1, zone: ZONE_MODE,     exportNote: 27  },
-    ];
-
-    // Re-tag the logo cell from base as corner_tr for rendering purposes
-    const cells = base.map(c =>
-        c.zone === ZONE.LOGO ? { ...c, zone: ZONE_CORNER_TR } : c
-    );
-
-    return [...cells, ...extra];
-}
 
 // ── Layout math ───────────────────────────────────────────────────
 // The display grid is 10 columns × 10 rows (x=0..9, y=0..9, top-left origin
@@ -84,27 +77,28 @@ function layoutMetrics(sz) {
     const padH = (sz - (11 * GAP) - MODE_GAP - 0) / (10 + MODE_RATIO);
     const padW = (sz - (11 * GAP)) / 10;
     const modeH = padH * MODE_RATIO;
-    return { padW, padH, modeH };
+    const modeW = padW * MODE_RATIO;
+    return { padW, padH, modeH, modeW };
 }
 
 // Convert a cell's (x,y) coord to canvas pixel (top-left of the pad).
-// x,y in Launchpad coord space (x=0..9, y=-1..9; y=9=top).
-// Returns null for cells outside the renderable area.
+// x,y in Launchpad coord space (x=0..9, y=-1..9; y=9=top; y=-1=mode row).
 function cellToPixel(cell, sz) {
-    const { padW, padH, modeH } = layoutMetrics(sz);
+    const { padW, padH, modeH, modeW } = layoutMetrics(sz);
 
     if (cell.y === -1) {
         // Mode light row — below display row 9
-        const px = GAP + cell.x * (padW + GAP) - padW / 2; // centred at x=4.5
+        // Center horizontally: 10 columns, center at x=4.5
+        const px = GAP + 4.97 * (padW + GAP) - modeW / 2;
         const py = GAP + 10 * (padH + GAP) + MODE_GAP;
-        return { px, py, pw: padW, ph: modeH };
+        return { px, py, pw: modeW, ph: modeH };
     }
 
     // Normal grid rows: y=9 → dispRow=0 (top), y=0 → dispRow=9 (bottom)
     const dispRow = 9 - cell.y;
     const dispCol = cell.x;
 
-    // Fractional x (e.g. logo at x=4.5 on mk2) — centre the pad
+    // Fractional x (e.g. logo at x=4.5) — centre the pad
     const px = GAP + dispCol * (padW + GAP);
     const py = GAP + dispRow * (padH + GAP);
     return { px, py, pw: padW, ph: padH };
@@ -113,15 +107,13 @@ function cellToPixel(cell, sz) {
 // ── WebGL state ───────────────────────────────────────────────────
 let canvas  = $state(null);
 let gl      = null;
-let isP3    = false;
-let isF16   = false;
 let prog    = null;
 let vao     = null;
 let colTex  = null;      // 128×1 RGBA texture, one texel per SysEx pad
-let colData = null;      // Float32Array (128*4) or Uint8Array
+let colData = null;      // Float32Array (128*4)
 let dpr     = 1;
 let dirty   = true;
-let rafId   = null;
+let unsubscribeFrame = null;
 
 // Uniform locations
 let uRes, uBrightness, uColTex;
@@ -135,11 +127,6 @@ let labelMode     = $state('none');   // 'none'|'sysex'|'note'|'xy'
 // ── GLSL shaders ─────────────────────────────────────────────────
 // Vertex: receives per-instance rect (x,y,w,h in CSS px), colour-texture
 //         index, and pressed flag. Outputs UV for colour lookup.
-//
-// sRGB→P3 matrix (IEC 61966-2-1 → SMPTE EG 432-1, both linear light):
-// [ 0.8225  0.1774  0.0000 ]
-// [ 0.0332  0.9669  0.0000 ]  (rows are P3 R,G,B)
-// [ 0.0171  0.0724  0.9108 ]
 
 const VS = `#version 300 es
 precision highp float;
@@ -204,23 +191,26 @@ void main() {
 
     if (vPressed > 0.5) col += vec3(0.06);
 
-
-
     fragColor = vec4(col, 1.0);
 }`;
 
+// ── Canvas sizing ─────────────────────────────────────────────────
+// FIXED: previously initGL() sized the canvas WITHOUT the dpr multiplier
+// (`canvas.width = size`), while the reactive $effect further down
+// correctly used `size * dpr` -- two disagreeing code paths meant the
+// very first frame after mount rendered at 1x instead of native
+// resolution. One helper now, used everywhere the canvas gets sized.
+function applyCanvasSize(sz) {
+    canvas.width  = sz * dpr;
+    canvas.height = sz * dpr;
+}
+
 // ── WebGL init ────────────────────────────────────────────────────
-function initGL(sz) {
+function initGL() {
     dpr = window.devicePixelRatio || 1;
-    canvas.width  = size;
-    canvas.height = size; // square — mode light fits within
+    applyCanvasSize(size);
 
-    // Probe context capabilities
-    const ctxAttribs = { alpha: false, antialias: false, depth: false, stencil: false };
-
-    // Try display-p3 + float16 first
-    let attempt = { ...ctxAttribs, colorSpace: 'display-p3' };
-    gl = canvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false });
+    gl = canvas.getContext('webgl2', { alpha: false, antialias: true, depth: false, stencil: false });
     if (!gl) { console.warn('VirtualLP: WebGL2 unavailable'); return false; }
     gl.getExtension('EXT_color_buffer_float');
 
@@ -268,13 +258,15 @@ function initGL(sz) {
 
     gl.bindVertexArray(null);
 
-    buildInstanceBuffers(sz);
+    buildInstanceBuffers(size);
     return true;
 }
 
 // ── Instance buffers ──────────────────────────────────────────────
 // Each pad = one instance. Instance data: rect(4f) + colIdx(1f) + pressed(1f)
-// We rebuild when device or size changes.
+// Rebuilt only when `size` changes now (no more `device` -- there's
+// exactly one canonical cell list, getCachedGrid(), shared with every
+// other consumer in the app).
 
 let instanceCount  = 0;
 let rectBuf        = null;
@@ -285,7 +277,7 @@ let padEntries     = []; // { cell, px, py, pw, ph } — for hit testing
 function buildInstanceBuffers(sz) {
     if (!gl) return;
 
-    const cells = buildCells(device);
+    const cells = getCachedGrid();
     padEntries  = [];
 
     const rects    = [];
@@ -293,9 +285,6 @@ function buildInstanceBuffers(sz) {
     const presseds = [];
 
     for (const cell of cells) {
-        // Skip the ZONE.MODE cell from base (we handle it via synthetic ZONE_MODE)
-        if (cell.zone === ZONE.MODE) continue;
-
         const pix = cellToPixel(cell, sz);
         if (!pix) continue;
 
@@ -405,12 +394,6 @@ function draw() {
     dirty = false;
 }
 
-// ── Render loop ───────────────────────────────────────────────────
-function loop() {
-    if (dirty) draw();
-    rafId = requestAnimationFrame(loop);
-}
-
 // ── Hit testing ───────────────────────────────────────────────────
 function hitTest(cx, cy) {
     const rect  = canvas.getBoundingClientRect();
@@ -450,16 +433,16 @@ function onKeyUp(e)   { if (e.key === 'Alt')   progMenuOpen = false; }
 
 // ── Lifecycle ─────────────────────────────────────────────────────
 onMount(() => {
-    if (initGL(size)) {
+    if (initGL()) {
         uploadColours();
-        loop();
+        unsubscribeFrame = subscribeFrame(() => { if (dirty) draw(); });
     }
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup',   onKeyUp);
 });
 
 onDestroy(() => {
-    cancelAnimationFrame(rafId);
+    unsubscribeFrame?.();
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup',   onKeyUp);
     // Clean up GL resources
@@ -475,12 +458,11 @@ onDestroy(() => {
 
 // ── Reactive effects ──────────────────────────────────────────────
 
-// Device or size change → full rebuild
+// Size change → full rebuild. (No more `device` dependency -- see header.)
 $effect(() => {
-    void [device, size];
+    void size;
     if (gl) {
-        canvas.width  = size * dpr;
-        canvas.height = size * dpr;
+        applyCanvasSize(size);
         buildInstanceBuffers(size);
         uploadColours();
     }
@@ -549,27 +531,6 @@ $effect(() => {
                     class="vlp-prog-slider"
                 />
                 <span class="vlp-prog-val">{Math.round(brightness * 100)}%</span>
-            </label>
-
-            <label class="vlp-prog-row">
-                <span>Corner</span>
-                <select
-                    value={logoOrMode}
-                    onchange={e => logoOrMode = e.target.value}
-                    class="vlp-prog-select"
-                >
-                    <option value="logo">Logo light</option>
-                    <option value="mode">Mode light</option>
-                </select>
-            </label>
-
-            <label class="vlp-prog-row">
-                <span>Device</span>
-                <select bind:value={device} class="vlp-prog-select">
-                    <option value="LPX">Launchpad X</option>
-                    <option value="LPP2">Pro MK2</option>
-                    <option value="LPP3">Pro MK3</option>
-                </select>
             </label>
 
             <p class="vlp-prog-hint">Hold Alt to keep open · release to close</p>
