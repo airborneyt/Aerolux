@@ -22,6 +22,7 @@ import HelpModal       from '../modals/HelpModal.svelte';
 import ImportModal     from '../modals/ImportModal.svelte';
 
 import { gradResult } from '../../stores/velocity.svelte.js';
+import { registerGradient } from '../../stores/kinetic.svelte.js';
 
 // $state(null). reactive so keyboard shortcuts see the API after mount
 let palettePanel = $state(null);
@@ -39,6 +40,10 @@ function openPresets(name = '') {
 
 // push named presets when they are saved:
 // (call this from saveCurrentGradient in preset-manager.js)
+$effect(() => {
+    const gr = gradResult();
+    registerGradient('current', gr);
+});
 
 onMount(() => {
     initSound();

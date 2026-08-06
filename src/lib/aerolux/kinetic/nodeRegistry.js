@@ -13,7 +13,6 @@
 
 import { nullField } from './field.js';
 import { createParamResolver, createParamIntegrator } from './automation.js';
-import { clipToField } from './clipImport.js';
 import { compileGraph } from './compileGraph.js';
 import { bakedFieldFromCache } from './bake.js';
 
@@ -26,7 +25,6 @@ import { createSpiralField } from './nodes/generators/spiral.js';
 import { createNoiseField } from './nodes/generators/noise.js';
 import { createWaveformField } from './nodes/generators/waveform.js';
 import { createFlashField } from './nodes/generators/flash.js';
-
 import { createClipImportField } from './nodes/generators/clipImport.js';
 
 // transforms
@@ -35,7 +33,7 @@ import { createScaleField } from './nodes/transforms/scale.js';
 import { createShiftField } from './nodes/transforms/shift.js';
 
 // colour
-import { createHueShiftField } from '../nodes/hueShift.js';
+import { createHueShiftField } from './nodes/colour/hueShift.js';
 import { createBrightnessField } from './nodes/colour/brightness.js';
 import { createSatMultField } from './nodes/colour/satMult.js';
 import { createContrastField } from './nodes/colour/contrast.js';
@@ -53,6 +51,8 @@ import { createClockScaleField } from './nodes/temporal/clockScale.js';
 
 // simulations
 import { createTrailField } from './nodes/simulations/trail.js';
+import { createGameOfLifeField } from './nodes/simulations/gameOfLife.js';
+import { createDiffusionField }  from './nodes/simulations/diffusion.js';
 
 // utility
 import { createBlendField } from './nodes/utility/blend.js';
@@ -185,24 +185,23 @@ export const NODE_DEFS = {
 
 // generators –––––––––––––––––––––––––––––––––––––––––––––––––––––––
     
-    import: {
-        id: 'import', label: 'Clip Import', icon: '➡', color: 'hsl(270,65%,60%)',
+    clipImport: {
+        id: 'clipImport', label: 'Clip Import', icon: '▬', color: 'hsl(270,65%,60%)',
         category: 'generator', kind: 'stateless', role: 'generator',
         hasInput: false, isMultiInput: false,
-        hint: 'Import a MIDI clip',
+        hint: 'Replays a loaded .mid file.',
         params: {
-            clipData:{
-                type: 'import'
-            },
+            clipData:    { type: 'clipImport', label: 'File', default: null },
             timeStretch: {
-                type: 'float', label: 'Time Stretch', default: 1, min: 0.5, max: 2, decimals: 2,
-                hint: 'Stretch the clip length by a factor.'
+                type: 'float', label: 'Speed', default: 1.0, min: 0.1, max: 4.0, decimals: 2, unit: '×',
+                animatable: true, // position-like (a direct multiplier each sample) — wired through resolveParam
             },
             transpose: {
-                type: 'float', label: 'Transpose', default: 0,
+                type: 'int', label: 'Transpose', default: 0, min: -64, max: 64,
+                animatable: true, // position-like (a direct note offset each sample) — wired through resolveParam
             },
         },
-        createField: clipToField,
+        createField: createClipImportField,
     },
 
     sweep: {
@@ -229,7 +228,7 @@ export const NODE_DEFS = {
                 type: 'float', label: 'Repeat period', default: 4, min: 0.1, max: 40, decimals: 2,
                 hint: 'Distance between repeats.',
             },
-            colourIdx: { type: 'paletteColour', label: 'Colour', default: 1 },
+            colour: { type: 'colourOrGradient', label: 'Colour', default: { mode: 'palette', index: 1 } },
         },
         createField: createSweepField,
     },
@@ -251,7 +250,7 @@ export const NODE_DEFS = {
             rippleInterval: { type: 'int', label: 'Launch every', default: 96, min: 4, max: 960, unit: 'ticks', hint: 'Ticks between successive ripple launches.' },
             rippleCount:    { type: 'int', label: 'Max overlapping', default: 4, min: 1, max: 10, hint: 'How many recent ripples to consider at once.' },
             decay:          { type: 'float', label: 'Decay per ripple', default: 0.7, min: 0.1, max: 0.99, decimals: 2 },
-            colourIdx:      { type: 'paletteColour', label: 'Colour', default: 1 },
+            colour:         { type: 'colourOrGradient', label: 'Colour', default: { mode: 'palette', index: 1 } },
         },
         createField: createRippleField,
     },
@@ -272,7 +271,7 @@ export const NODE_DEFS = {
             tightness:    { type: 'float', label: 'Tightness', default: 1.2, min: 0.1, max: 5, decimals: 2, hint: 'Radians of winding per canvas unit of radius. Lower = looser spiral.' },
             armWidth:     { type: 'float', label: 'Arm width', default: 0.6, min: 0.05, max: 3.14, decimals: 2, unit: 'rad' },
             clockwise:    { type: 'toggle', label: 'Clockwise', default: true },
-            colourIdx:    { type: 'paletteColour', label: 'Colour', default: 8 },
+            colour:       { type: 'colourOrGradient', label: 'Colour', default: { mode: 'palette', index: 1 } },
         },
         createField: createSpiralField,
     },
@@ -291,7 +290,7 @@ export const NODE_DEFS = {
             phaseRange:    { type: 'float', label: 'Phase spread', default: 1, min: 0, max: 1, decimals: 2, hint: '0 = every pad in sync, 1 = fully scattered phases.' },
             seed:          { type: 'int', label: 'Seed', default: 0, min: 0, max: 999999, hint: 'Change for a different (but repeatable) shimmer pattern.' },
             minBrightness: { type: 'float', label: 'Min brightness', default: 0.15, min: 0, max: 1, decimals: 2 },
-            colourIdx:     { type: 'paletteColour', label: 'Colour', default: 1 },
+            colour:        { type: 'colourOrGradient', label: 'Colour', default: { mode: 'palette', index: 1 } },
         },
         createField: createNoiseField,
     },
@@ -318,7 +317,7 @@ export const NODE_DEFS = {
                 ],
             },
             amplitude:    { type: 'float', label: 'Amplitude', default: 1, min: 0, max: 1, decimals: 2, hint: 'Modulation depth, 0 = no effect, 1 = full brightness swing.' },
-            colourIdx:    { type: 'paletteColour', label: 'Colour', default: 1 },
+            colour:       { type: 'colourOrGradient', label: 'Colour', default: { mode: 'palette', index: 1 } },
         },
         createField: createWaveformField,
     },
@@ -340,7 +339,7 @@ export const NODE_DEFS = {
                 ],
             },
             staggerAmount: { type: 'int', label: 'Stagger amount', default: 4, min: 0, max: 96, unit: 'ticks/index' },
-            colourIdx:     { type: 'paletteColour', label: 'Colour', default: 8 },
+            colour:        { type: 'colourOrGradient', label: 'Colour', default: { mode: 'palette', index: 1 } },
         },
         createField: createFlashField,
     },
@@ -749,20 +748,46 @@ export const NODE_DEFS = {
         createField: createTrailField,
     },
 
-// miscellaneous ––––––––––––––––––––––––––––––––––––––––––––––––––––
-
-    clipImport: {
-        id: 'clipImport', label: 'Clip Import', icon: '▬', color: 'hsl(270,65%,60%)',
-        category: 'generator', kind: 'stateless', role: 'generator',
-        hasInput: false, isMultiInput: false,
-        hint: 'Replays a loaded .mid file. clipData param control is not yet wired into the Inspector -- see the node-authoring guide §4.1.',
+    gameOfLife: {
+        id: 'gameOfLife', label: 'Game of Life', icon: '⧈', color: 'hsl(150,55%,50%)',
+        category: 'simulation', kind: 'stateful', role: 'simulation',
+        hasInput: true, isMultiInput: false,
+        hint: 'Conway\'s Game of Life. Leave the input unwired for a self-contained random-seeded board, or wire something in to spawn new live cells wherever it\'s lit. Single-device grid only for now (see the node-authoring guide).',
         params: {
-            clipData:    { type: 'clipImport', label: 'File', default: null },
-            timeStretch: { type: 'float', label: 'Speed', default: 1.0, min: 0.1, max: 4.0, decimals: 2, unit: '×' },
-            transpose:   { type: 'int',   label: 'Transpose', default: 0, min: -64, max: 64 },
+            resolution:     { type: 'int',   label: 'Grid resolution', default: 9,    min: 4, max: 20 },
+            density:        { type: 'float', label: 'Seed density',    default: 0.35, min: 0, max: 1, decimals: 2, hint: 'Initial probability a cell starts alive.' },
+            seed:           { type: 'int',   label: 'Seed',            default: 0,    min: 0, max: 9999, hint: 'Change for a different (but repeatable) starting board.' },
+            stepsPerSecond: { type: 'float', label: 'Generations/sec', default: 6,    min: 0.5, max: 30, decimals: 1 },
+            wrapEdges:      { type: 'toggle', label: 'Wrap edges', default: true, hint: 'Toroidal board — off the right edge reappears on the left, etc.' },
+            colour: {
+                type: 'colourOrGradient', label: 'Colour',
+                default: { mode: 'palette', index: 8 },
+                hint: 'Per-pad gradient mode replays the gradient once from the exact tick each cell was born.',
+            },
         },
-        createField: createClipImportField,
+        createField: createGameOfLifeField,
     },
+
+    diffusion: {
+        id: 'diffusion', label: 'Diffusion', icon: '◈', color: 'hsl(150,55%,50%)',
+        category: 'simulation', kind: 'stateful', role: 'simulation',
+        hasInput: true, isMultiInput: false,
+        hint: 'Energy spreads to neighbouring cells and fades over time. Wire something in to inject energy wherever it\'s lit — an unwired input just decays to nothing.',
+        params: {
+            resolution:     { type: 'int',   label: 'Grid resolution',  default: 9,    min: 4, max: 20 },
+            diffusionRate:  { type: 'float', label: 'Spread rate',      default: 0.15, min: 0, max: 0.24, decimals: 2, hint: 'Fraction of a cell\'s energy spread to each neighbour per step. Keep below 0.25 or the simulation can overshoot.' },
+            decay:          { type: 'float', label: 'Decay per step',   default: 0.92, min: 0.5, max: 0.999, decimals: 3 },
+            injectAmount:   { type: 'float', label: 'Inject amount',    default: 1.0,  min: 0, max: 2, decimals: 2 },
+            stepsPerSecond: { type: 'float', label: 'Steps/sec',        default: 20,   min: 1, max: 60, decimals: 0 },
+            colour: {
+                type: 'colourOrGradient', label: 'Colour',
+                default: { mode: 'palette', index: 8 },
+            },
+        },
+        createField: createDiffusionField,
+    },
+
+// miscellaneous ––––––––––––––––––––––––––––––––––––––––––––––––––––
 
     groupInput: {
         id: 'groupInput', label: 'Group Input', icon: '⇥', color: 'hsl(220,20%,55%)',

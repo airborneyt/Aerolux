@@ -5,6 +5,7 @@ use tauri::WindowEvent;
 mod llama_download;
 mod llama_server;
 mod llama_chat;
+mod kinetic_live;
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -130,6 +131,7 @@ use window_vibrancy::apply_mica;
 pub fn run() {
     tauri::Builder::default()
         .manage(std::sync::Mutex::new(MidiState { connection: None }))
+        .manage(std::sync::Mutex::new(kinetic_live::KineticLiveState::new()))
         .manage(llama_server::init_state())
         .manage(llama_chat::init_abort_registry())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -183,6 +185,9 @@ pub fn run() {
             midi_send_raw_sysex,
             midi_clear_pads,
             midi_list_outputs,
+            kinetic_live::kinetic_live_connect,
+            kinetic_live::kinetic_live_push,
+            kinetic_live::kinetic_live_disconnect,
             hardware::get_hardware_info,
             menu::set_save_menu_enabled,
             llama_server::llama_start_server,

@@ -6,13 +6,13 @@
 // project's bpm/timeDiv. locking sim steps to MIDI tick resolution means step 
 // count scales with whatever tempo/timeDiv a project happens to use (unbounded 
 // cost at fast tempos or fine timeDiv), and diffusion-style simulations need 
-// a fixed step size to behave consistently run to run. A fixed-rate accumulator 
+// a fixed step size to behave consistently run to run. a fixed-rate accumulator 
 // also keeps live-preview cost bounded and predictable regardless of playback
 // speed, and needs no interpolation at export. a stateful field's colour is
 // constant between its own steps.
 // ============================================================================
 
-const DEFAULT_SIM_RATE_HZ = 30;
+const DEFAULT_SIM_RATE_HZ = 60;
 
 /**
     fixed-step accumulator: same pattern as a game-loop physics step. feed it

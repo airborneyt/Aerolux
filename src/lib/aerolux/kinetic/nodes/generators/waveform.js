@@ -3,7 +3,8 @@
 
 // differs from sweep but might be reworked to actually display a waveform rather than sending it as a brightness modulatior.
 
-import { resolvePaletteColour, clamp63 } from "../../sharedHelpers";
+import { resolveColourOrGradient, resolveCycleMode, resolveCycleOpts } from "../../sharedHelpers";
+import { colourCycleField } from "../../field";
 
 function waveShape(type, phase01) {
     switch (type) {
@@ -19,14 +20,12 @@ export function createWaveformField(params, context, inputField, inputFieldB, re
         frequency    = 0.3,     // cycles per canvas unit
         waveType     = 'sine',  // 'sine' | 'triangle' | 'square'
         amplitude    = 1,       // 0-1 modulation depth
-        colourIdx    = 8,
     } = params;
 
-    const rgb = resolvePaletteColour(context?.palette, colourIdx);
     const rad = angleDegrees * Math.PI / 180;
     const dirX = Math.cos(rad), dirY = Math.sin(rad);
 
-    return {
+    const shapeField = {
         kind: 'stateless',
         sample(x, y, t) {
             const pos = x * dirX + y * dirY;
@@ -37,7 +36,11 @@ export function createWaveformField(params, context, inputField, inputFieldB, re
             if (phase < 0) phase += 1;
             const wave = waveShape(waveType, phase);
             const brightness = 1 - amplitude + amplitude * wave;
-            return rgb.map(v => clamp63(v * brightness));
+            return brightness > 0 ? brightness : null;
         },
     };
+
+    const resolveColour = resolveColourOrGradient(params.colour, context);
+    const cycleMode = resolveCycleMode(params.colour);
+    return colourCycleField(shapeField, resolveColour, cycleMode, { ...resolveCycleOpts(params.colour) });
 }

@@ -1,4 +1,4 @@
-name: 'Publish Release'
+name: 'Aerolux 2.0.0-alpha.3'
 
 on:
   push:
@@ -49,9 +49,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: app-v2.0.0-alpha.2
-          tagMessage: 'App v2.0.0-alpha.2'
-          releaseName: 'App v2.0.0-alpha.2'
+          tagName: Aerolux-v2.0.0-alpha.3
+          releaseName: 'Aerolux v2.0.0-alpha.3'
           releaseBody: 'Download your app for Windows, macOS, or Linux.'
           releaseDraft: true
           prerelease: true

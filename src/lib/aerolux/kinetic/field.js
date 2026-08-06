@@ -8,15 +8,13 @@
 //                 sample(x, y) -> RGB63 | null }
 //
 // colour stays in this continuous space through the whole graph; snapping to a
-// discrete palette index happens exactly once, at export, never
-// here. this is what avoids the "hue-shift jumps between palette entries"
-// problem.
+// discrete palette index happens exactly once, at export, never here.
 // ============================================================================
 
-/** 
-    always unlit. safe default for unwired inputs. 
+/**
+    always unlit. safe default for unwired inputs.
     add this to every node that is NOT a generator.
-    this ensures light still passes with no changes. 
+    this ensures light still passes with no changes.
 */
 export const nullField = Object.freeze({
     kind: 'stateless',
@@ -24,9 +22,9 @@ export const nullField = Object.freeze({
 });
 
 /**
-    a field that returns the same colour everywhere, always.
+    a field that returns the same colour everywhere, always
 
-    @param {[number,number,number]} rgb63
+@param {[number,number,number]} rgb63
 @returns {Field}
 */
 export function constantField(rgb63) {
@@ -37,13 +35,7 @@ export function constantField(rgb63) {
 }
 
 /**
-    generic coordinate-space wrapper; the pattern every geometric transform
-    (scale/translate/flip/warp) reduces to. `remap(x, y, t)` returns the
-    coordinate to sample on the *upstream* field; the wrapper never touches
-    colour itself.
-
-    this is what makes transforms gapless and resolution-independent: there is
-    no discrete pad remapping anywhere, so no gap-filling logic is needed.
+    generic coordinate-space wrapper
 
 @param {Field|null} inputField
 @param {(x:number, y:number, t:number) => {x:number, y:number}} remap
@@ -61,18 +53,15 @@ export function transformField(inputField, remap) {
 }
 
 /**
-    proof-of-concept rotate wrapper built on transformField. safe to use in
-    other nodes, instead of building the rotateField from scratch.
-
 @param {Field|null} inputField
-@param {number | ((t:number) => number)} degreesOrFn  static angle, or a function of t for animated rotation
+@param {number | ((t:number) => number)} degreesOrFn
 @param {{x:number,y:number}} [pivot]
 @returns {Field}
 */
 export function rotateField(inputField, degreesOrFn, pivot = { x: 0, y: 0 }) {
     return transformField(inputField, (x, y, t) => {
         const degrees = typeof degreesOrFn === 'function' ? degreesOrFn(t) : degreesOrFn;
-        const rad = -degrees * Math.PI / 180; // inverse-rotate the sample point
+        const rad = -degrees * Math.PI / 180;
         const cx = x - pivot.x, cy = y - pivot.y;
         return {
             x: cx * Math.cos(rad) - cy * Math.sin(rad) + pivot.x,
@@ -82,10 +71,8 @@ export function rotateField(inputField, degreesOrFn, pivot = { x: 0, y: 0 }) {
 }
 
 /**
-    wraps a mutable state object into a stateful field, so individual stateful
-    nodes don't each hand-roll the `kind: 'stateful'` shape by hand.
-
-@param {*} initialState        held by reference, mutated in place by `step`
+    wraps a mutable state object into a stateful field
+@param {*} initialState
 @param {(state:*, dt:number, context:*) => void} step
 @param {(state:*, x:number, y:number) => ([number,number,number]|null)} read
 @returns {Field}
@@ -100,15 +87,7 @@ export function statefulField(initialState, step, read) {
 }
 
 /**
-    colour-space wrapper; the counterpart to transformField.
-    colourMapField remaps the colour the upstream field returns. this is the
-    pattern every colour node (hue shift, saturation, brightness, posterise,
-    tint...) reduces to.
-
-    `mapFn(rgb, x, y, t)` receives the upstream RGB63 triple plus the sample
-    coordinates for context (e.g. a vignette that darkens by distance from
-    centre). most colour nodes only need `rgb`. `t` is `undefined` when
-    wrapping a stateful field (its sample() has no t to forward).
+    colour-SPACE wrapper (remaps the colour an upstream field returns)
 
 @param {Field|null} inputField
 @param {(rgb:[number,number,number], x:number, y:number, t:number|undefined) => [number,number,number]} mapFn
@@ -138,17 +117,7 @@ export function colourMapField(inputField, mapFn) {
 }
 
 /**
-    time-space wrapper; the third member of the remapping-wrapper trio alongside
-    transformField (coordinate space) and colourMapField (colour space).
-    timeMapField remaps the time it's queried at; `x`/`y`/colour are left alone.
-    this is the pattern every temporal utility (Time Remap/Pinch, Ping Pong, Loop,
-    Delay, Clock Divider/Multiplier) reduces to.
-
-    only meaningful for stateless upstream fields. a stateful field's
-    `sample(x,y)` doesn't take `t` at all, so there is no time parameter to remap.
-    passing a stateful field through timeMapField returns it unchanged
-    (still stateful) rather than silently no-op-wrapping it, since remapping a thing 
-    that has no time axis is a no-op by definition.
+    time-space wrapper (remaps the time an upstream field is queried at)
 
 @param {Field|null} inputField
 @param {(t:number) => number} remapTime
@@ -156,7 +125,7 @@ export function colourMapField(inputField, mapFn) {
 */
 export function timeMapField(inputField, remapTime) {
     if (!inputField) return nullField;
-    if (inputField.kind === 'stateful') return inputField; // no time axis to remap = harmless pass-through
+    if (inputField.kind === 'stateful') return inputField;
     return {
         kind: 'stateless',
         sample(x, y, t) {
@@ -164,16 +133,9 @@ export function timeMapField(inputField, remapTime) {
         },
     };
 }
-/**
-    time-bounds wrapper; makes a node active only within [startTick, endTick]
-    (either end may be null/omitted for an open bound).
 
-    stateless fields simply return null outside the window. 
-    stateful fields are trickier: their `sample(x,y)` doesn't take t, 
-    so gating has to happen at `advance()` time instead, using `context.currentTick` 
-    (set by whoever drives the sim clock each frame. see simClock.js / kineticPreview.svelte.js). 
-    gating advance() rather than sample() means a stateful node's simulation genuinely freezes
-    while outside its active window, rather than silently evolving unseen.
+/**
+    time-bounds wrapper (makes a node active only within [startTick, endTick])
 
 @param {Field|null} inputField
 @param {number|null} [startTick]
@@ -182,7 +144,7 @@ export function timeMapField(inputField, remapTime) {
 */
 export function gateField(inputField, startTick = null, endTick = null) {
     if (!inputField) return nullField;
-    if (startTick == null && endTick == null) return inputField; // no-op
+    if (startTick == null && endTick == null) return inputField;
 
     const inRange = (t) =>
         (startTick == null || t >= startTick) && (endTick == null || t <= endTick);
@@ -203,4 +165,117 @@ export function gateField(inputField, startTick = null, endTick = null) {
         kind: 'stateless',
         sample(x, y, t) { return inRange(t) ? inputField.sample(x, y, t) : null; },
     };
+}
+
+// local clamp helper
+function clamp63(v) {
+    return Math.max(0, Math.min(63, Math.round(v)));
+}
+
+/**
+    colour-SOURCE wrapper (replaces an upstream SHAPE field's colour entirely) 
+    reading it only for a brightness value in (0,1] (or null = unlit)
+
+@param {Field|null} shapeField  sample() returns brightness (0,1] or null
+@param {(t:number, triggerTick:number|null) => [number,number,number]} resolveColour
+@param {'synced'|'perTrigger'} [mode]
+@param {{resolution?:number, litThreshold?:number, cycleTicks?:number, holdMode?:'linked'|'full'}} [opts]
+@returns {Field}
+*/
+export function colourCycleField(shapeField, resolveColour, mode = 'synced', opts = {}) {
+    if (!shapeField) return nullField;
+    const { resolution = 9, litThreshold = 0.001, cycleTicks = null, holdMode = 'linked' } = opts;
+    const canHold = holdMode === 'full' && cycleTicks != null;
+
+    function applyBrightness(rgb, brightness) {
+        return [
+            clamp63(rgb[0] * brightness),
+            clamp63(rgb[1] * brightness),
+            clamp63(rgb[2] * brightness),
+        ];
+    }
+
+    if (mode !== 'perTrigger') {
+        // synced mode has no "trigger" concept at all
+        if (shapeField.kind === 'stateful') {
+            let lastTick = 0;
+            return {
+                kind: 'stateful',
+                advance(dt, ctx) {
+                    lastTick = ctx?.currentTick ?? lastTick;
+                    shapeField.advance(dt, ctx);
+                },
+                sample(x, y) {
+                    const brightness = shapeField.sample(x, y);
+                    if (brightness == null || brightness <= 0) return null;
+                    const rgb = resolveColour(lastTick, null);
+                    return rgb ? applyBrightness(rgb, brightness) : null;
+                },
+            };
+        }
+        return {
+            kind: 'stateless',
+            sample(x, y, t) {
+                const brightness = shapeField.sample(x, y, t);
+                if (brightness == null || brightness <= 0) return null;
+                const rgb = resolveColour(t, null);
+                return rgb ? applyBrightness(rgb, brightness) : null;
+            },
+        };
+    }
+
+    // perTrigger: tracks, per fixed grid cell:
+    //   wasLitRaw:     the shape's own last-known lit/unlit state, used
+    //                  only to detect fresh unlit->lit transitions
+    //                  (including re-triggers mid-hold). never used
+    //                  directly to decide whether to render.
+    //   triggerTick:   the tick of the most recent such transition.
+    //   brightness:    snapshot of the shape's brightness, updated only
+    //                  while raw-lit (frozen at its last real value during
+    //                  a 'full' hold, so a held pixel keeps whatever
+    //                  intensity it had at the moment it went dark rather
+    //                  than reading as undefined/zero).
+    //   active:        whether this pixel should currently render at all
+    //                  true while raw-lit, or (holdMode:'full' only)
+    //                  while still within cycleTicks of its triggerTick.
+    return statefulField(
+        { wasLitRaw: new Map(), triggerTick: new Map(), brightness: new Map(), active: new Map(), lastTick: 0 },
+        (state, dt, ctx) => {
+            if (shapeField.kind === 'stateful') shapeField.advance(dt, ctx);
+            const t = ctx?.currentTick ?? 0;
+            state.lastTick = t;
+
+            for (let gy = 0; gy <= resolution; gy++) {
+                for (let gx = 0; gx <= resolution; gx++) {
+                    const key = `${gx},${gy}`;
+                    const rawBrightness = shapeField.kind === 'stateful'
+                        ? shapeField.sample(gx, gy)
+                        : shapeField.sample(gx, gy, t);
+                    const rawLit = rawBrightness != null && rawBrightness > litThreshold;
+                    const wasRawLit = state.wasLitRaw.get(key) ?? false;
+
+                    // fresh trigger (or re-trigger during a hold)
+                    if (rawLit && !wasRawLit) state.triggerTick.set(key, t);
+                    state.wasLitRaw.set(key, rawLit);
+                    if (rawLit) state.brightness.set(key, rawBrightness);
+
+                    let active = rawLit;
+                    if (!active && canHold) {
+                        const triggerTick = state.triggerTick.get(key);
+                        if (triggerTick != null) active = (t - triggerTick) < cycleTicks;
+                    }
+                    state.active.set(key, active);
+                }
+            }
+        },
+        (state, x, y) => {
+            const key = `${Math.round(x)},${Math.round(y)}`;
+            if (!state.active.get(key)) return null;
+            const triggerTick = state.triggerTick.get(key) ?? state.lastTick;
+            const rgb = resolveColour(state.lastTick, triggerTick);
+            if (!rgb) return null;
+            const brightness = state.brightness.get(key) ?? 1;
+            return applyBrightness(rgb, brightness);
+        },
+    );
 }

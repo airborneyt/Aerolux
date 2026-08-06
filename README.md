@@ -1,43 +1,93 @@
-# Svelte + Vite
+# Aerolux
 
-This template should help get you started developing with Svelte in Vite.
+## Bring Your Launchpad to Life.
 
-## Recommended IDE Setup
+[logo]
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
+Aerolux is the next generation of Launchpad lightshow production.
 
-## Need an official Svelte framework?
+[picture]
 
-Check out [SvelteKit](https://github.com/sveltejs/kit#readme), which is also powered by Vite. Deploy anywhere with its serverless-first approach and adapt to various platforms, with out of the box support for TypeScript, SCSS, and Less, and easily-added support for mdsvex, GraphQL, PostCSS, Tailwind CSS, and more.
+Traditional lightshow workflows often rely on chain-based production techniques, where effects are built and arranged sequentially. Aerolux takes a different approach. Inspired by node-based workflows found in professional creative software such as DaVinci Resolve and Blender, Aerolux provides a more flexible and powerful way to create, manipulate and combine lightshow effects, giving Launchpad Artists a new way to approach lightshow production from the ground up.
 
-## Technical considerations
+At the heart of Aerolux are two powerful creative environments: **Velocity** and **Kinetic**.
 
-**Why use this over SvelteKit?**
+## Velocity: The Ultimate Gradient Editor
 
-- It brings its own routing solution which might not be preferable for some users.
-- It is first and foremost a framework that just happens to use Vite under the hood, not a Vite app.
+Velocity is a supercharged gradient builder designed for Launchpad-compatible palettes.
 
-This template contains as little as possible to get started with Vite + Svelte, while taking into account the developer experience with regards to HMR and intellisense. It demonstrates capabilities on par with the other `create-vite` templates and is a good starting point for beginners dipping their toes into a Vite + Svelte project.
+[picture]
 
-Should you later need the extended capabilities and extensibility provided by SvelteKit, the template has been structured similarly to SvelteKit so that it is easy to migrate.
+Featuring a suite of mathematical algorithms, Velocity can generate smooth, precise gradients from virtually any combination of colours. With support for multiple colours and accurate transitions across Aerolux's fixed 128-colour palette [1], Velocity gives you precise control over how your Launchpad's colours are constructed and displayed.
 
-**Why include `.vscode/extensions.json`?**
+[demo]
 
-Other templates indirectly recommend extensions via the README, but this file allows VS Code to prompt the user to install the recommended extension upon opening the project.
+Velocity also includes a collection of power tools designed to eliminate repetitive work. Create variations of existing gradients, automate complex workflows and extend Velocity's capabilities with Python scripts.
 
-**Why enable `checkJs` in the JS template?**
+[demo]
 
-It is likely that most cases of changing variable types in runtime are likely to be accidental, rather than deliberate. This provides advanced typechecking out of the box. Should you like to take advantage of the dynamically-typed nature of JavaScript, it is trivial to change the configuration.
+With optional support for **Airbot**, Aerolux's locally integrated LLM, Velocity can take your creative process even further. Generate gradients from colours extracted from images or describe the palette you want using natural language, allowing Airbot to turn your ideas into something you can immediately work with [2].
 
-**Why is HMR not preserving my local component state?**
+[demo]
 
-HMR state preservation comes with a number of gotchas! It has been disabled by default in both `svelte-hmr` and `@sveltejs/vite-plugin-svelte` due to its often surprising behavior. You can read the details [here](https://github.com/sveltejs/svelte-hmr/tree/master/packages/svelte-hmr#preservation-of-local-state).
+## Kinetic: Create Beyond the Grid
 
-If you have state that's important to retain within a component, consider creating an external store which would not be replaced by HMR.
+Kinetic separates your creative workspace from the physical limitations of your Launchpad through an entirely new workflow.
 
-```js
-// store.js
-// An extremely simple external store
-import { writable } from 'svelte/store'
-export default writable(0)
-```
+[picture]
+
+At its core is the **Canvas engine**, a lightweight visual processing environment designed to make complex, multi-Launchpad lightshows possible without significant performance overhead.
+
+Unlike traditional workflows that process effects around the fixed physical positions of individual Launchpad pads, Kinetic works within a continuous, position-based Canvas. Visual data is created and transformed independently of the physical hardware, allowing effects to move, scale, rotate and interact freely across the entire Canvas.
+
+[demo]
+
+Kinetic's node-based workflow makes this process both powerful and intuitive. Build effects by connecting simple operations together, or use Aerolux's native generators to create complex visual patterns in seconds. Traditional hand-drawn light creation is supported too, giving you complete control over how you work.
+
+[pictures]
+
+Kinetic also supports multi-Launchpad setups as a unified visual space through **Stage**. Build an effect once and let it span across multiple devices, creating seamless transitions and continuous animations across your entire setup.
+
+Need a unique arrangement? No problem. Kinetic supports virtually any device location and orientation, with support for up to 16 devices simultaneously.
+
+[pictures]
+
+With dozens of creative and powerful nodes, Kinetic caters to every type of Launchpad Artist, from beginners and hobbyists to experienced creators and professionals.
+
+Kinetic can also import traditional MIDI into the Canvas workflow, while retaining the familiar piano-roll style of manually creating light effects. Whether you prefer procedural generation, traditional editing or a combination of both, no light effect gets left behind.
+
+Just like Velocity, Kinetic can optionally be supercharged with **Airbot**. Designed to complement your workflow rather than replace it, Airbot can automatically lay out frameworks based on patterns you describe. If a light effect is not quite hitting the right spot, Airbot can also suggest and implement changes based on the mood or direction you describe.
+
+## A New Era of Launchpad Lightshows.
+
+Aerolux gives Launchpad Artists the freedom to spend less time fighting their tools and more time creating.
+
+Velocity and Kinetic are designed to work together. Together, they form a unified environment for creating Launchpad lightshows that are faster to build, easier to experiment with and capable of scaling from a single device to complex multi-Launchpad setups, allowing Launchpad Artists to **keep making great things**.
+
+---
+
+## Notes
+
+* Certain features of Aerolux have been developed with the assistance of AI. This includes, but is not limited to:
+
+  * Physical Launchpad outputs
+  * Airbot support
+  * Tint and automation within Velocity
+  * Stage modal and Simulation nodes within Kinetic
+
+* As such, these features may contain bugs, limitations or implementation shortcomings. Contributions and improvements are welcome, and if you find a way to improve on any of these systems, please consider opening a pull request.
+
+### [1] Launchpad-Compatible Palettes
+
+Aerolux supports palettes compatible with Novation Launchpad devices. Supported palettes include, but are not limited to:
+
+* Airborne palette (default)
+* Novation RGB palette
+* Novation RGY palette
+* Mat1jaczyyy palette
+
+### [2] Airbot and Creative Assistance
+
+AI in a creative field is a highly delicate and sensitive topic. Airbot has been designed specifically to complement creators rather than replace important creative workflows, allowing creators to extend their artistic potential while retaining control over the creative process.
+
+Fully autonomous or generative Airbot workflows are not within the scope of Aerolux and will not be pursued.

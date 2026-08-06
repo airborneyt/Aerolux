@@ -19,7 +19,13 @@ import {
   deserializeVelocityState,
   isValidVelocityState,
 } from '../lib/aerolux/project-velocity.js';
-import { buildVelocityThumbnail } from '../lib/aerolux/project-thumbnail.js';
+import { buildVelocityThumbnail, buildKineticThumbnail } from '../lib/aerolux/project-thumbnail.js';
+import { kinetic, resetKineticState, applyKineticProjectState } from './kinetic.svelte.js';
+import {
+  serializeKineticState,
+  deserializeKineticState,
+  isValidKineticState,
+} from '../lib/aerolux/project-kinetic.js';
 import {
   pickOpenPath,
   pickSavePath,
@@ -45,7 +51,8 @@ export const projects = $state({
 
 // dirty tracking ────────────────────────────────────────────────────
 // subscribes once to the shared emitter. any meaningful Velocity edit
-// fires 'gradient:change', which is enough to mark the project dirty.
+// fires 'gradient:change', and any meaningful Kinetic edit fires 
+// 'kinetic:change', both of which is enough to mark the project dirty.
 //
 // if no project is open yet when this fires, the edit itself implies
 // intent to start one. aerolux-init.svelte.js only emits this event
@@ -54,14 +61,23 @@ export const projects = $state({
 // an implicit Velocity project (no toast, no modal, it should feel
 // invisible) rather than letting the edit vanish into an untracked
 // limbo with nothing to save, recover, or warn about on quit.
-//
-// Kinetic will emit its own 'kinetic:change' once its API exists
-// that subscription gets added alongside Kinetic save/load, with the
-// same implicit-project behaviour.
 
 emitter.on('gradient:change', () => {
   if (projects.currentType === null) {
     projects.currentType      = 'velocity';
+    projects.currentPath      = null;
+    projects.currentName      = 'Untitled';
+    projects.currentCreatedAt = null;
+  }
+
+  if (projects.currentType === 'velocity' || projects.currentType === 'kinetic') {
+    projects.isDirty = true;
+  }
+});
+
+emitter.on('kinetic:change', () => {
+  if (projects.currentType === null) {
+    projects.currentType      = 'kinetic';
     projects.currentPath      = null;
     projects.currentName      = 'Untitled';
     projects.currentCreatedAt = null;
@@ -157,8 +173,7 @@ export function newProject(type) {
     Object.assign(editor, deserializeVelocityState(defaultVelocityState()));
   }
   if (type === 'kinetic') {
-    // todo: reset kinetic.svelte.js state once it exists.
-    // intentionally a no-op for now. type system support only.
+    resetKineticState();
   }
 
   projects.currentPath      = null;
@@ -200,7 +215,11 @@ async function loadProjectFromPath(path) {
   }
 
   if (data.type === 'kinetic') {
-    // todo: apply kinetic state once kinetic.svelte.js + project-kinetic.js exist.
+    if (!isValidKineticState(data.kinetic)) {
+      showToast('Project file is missing valid Kinetic data.', 'error', 5000);
+      return false;
+    }
+    applyKineticProjectState(deserializeKineticState(data.kinetic));
   }
 
   projects.currentPath      = path;
@@ -260,7 +279,9 @@ async function writeCurrentProjectTo(path) {
     velocity: (projects.currentType === 'velocity')
       ? serializeVelocityState(editor)
       : null,
-    kinetic: null, // todo: serialise kinetic state once it exists
+    kinetic: (projects.currentType === 'kinetic')
+      ? serializeKineticState(kinetic)
+      : null,
   };
 
   try {
@@ -293,6 +314,8 @@ async function buildThumbnailForCurrentProject() {
   if (projects.currentType === 'velocity') {
     return buildVelocityThumbnail(editor);
   }
-  // 'kinetic' thumbnails land with Kinetic save/load.
+  if (projects.currentType === 'kinetic') {
+    return buildKineticThumbnail(kinetic);
+  }
   return null;
 }

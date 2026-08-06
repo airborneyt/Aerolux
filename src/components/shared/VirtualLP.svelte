@@ -3,42 +3,6 @@
 // VirtualLP.svelte — WebGL2 Launchpad preview
 // Colour pipeline: sRGB 6-bit palette → linear light → P3 (if avail)
 // Instanced rendering: one draw call for all pads per frame.
-//
-// SIMPLIFIED (post-audit):
-//   - No more `device` prop / multi-model branching. This component used
-//     to rebuild its own cell layout via a LOCAL buildCells() that called
-//     buildLaunchpadGrid(dev) directly, then bolted on a hand-maintained
-//     top-left "corner" pad (sysexPad 90 -- a light that doesn't exist on
-//     any real Launchpad; always dark in every Kinetic preview, since
-//     nothing in the sampling pipeline ever produced a value for it),
-//     re-tagged the logo cell, and re-added the bottom/mode corners that
-//     midi-layout.js's own buildLaunchpadGrid() ALREADY provides. All of
-//     that is gone: this now just reads getCachedGrid() -- the single
-//     shared, cached cell list midi-layout.js exposes, the same one
-//     sampleDevice.js's getDeviceGrid() reads -- so there is exactly ONE
-//     canonical layout computed once for the whole app, not once per
-//     VirtualLP instance and AGAIN per Kinetic sampling call.
-//   - No more `logoOrMode` prop / "Corner" selector in the Programmer
-//     menu. Logo and mode used to share one coordinate, so a preview had
-//     to arbitrarily pick which one to *show*. They're two genuinely
-//     separate positions now (see midi-layout.js's header) and both
-//     render simultaneously, with their own independently-sampled
-//     colours -- there's nothing left to choose for PREVIEW purposes;
-//     the logo/mode choice only matters at real-hardware-export time
-//     (a per-device setting elsewhere, not something this shared preview
-//     component should own).
-//   - Canvas sizing bug fixed: initGL() used to size the canvas WITHOUT
-//     the devicePixelRatio multiplier applied (`canvas.width = size`),
-//     while the separate reactive $effect correctly used `size * dpr` --
-//     two different canvas-sizing code paths that disagreed, meaning the
-//     very first rendered frame after mount was sized at 1x (blurry on
-//     HiDPI/Retina) until the effect corrected it a moment later. Both
-//     paths now go through one applyCanvasSize() helper.
-//   - Render loop coalesced onto a single shared requestAnimationFrame
-//     driver (frameTicker.js) instead of each VirtualLP instance running
-//     its own independent rAF registration -- see that file's header for
-//     why this matters once several instances are mounted at once (e.g.
-//     MultiDevicePreview.svelte with multiple devices).
 // ════════════════════════════════════════════════════════════════════
 import { onMount, onDestroy } from 'svelte';
 import { getCachedGrid } from '../../lib/aerolux/midi-layout.js';
@@ -195,11 +159,6 @@ void main() {
 }`;
 
 // ── Canvas sizing ─────────────────────────────────────────────────
-// FIXED: previously initGL() sized the canvas WITHOUT the dpr multiplier
-// (`canvas.width = size`), while the reactive $effect further down
-// correctly used `size * dpr` -- two disagreeing code paths meant the
-// very first frame after mount rendered at 1x instead of native
-// resolution. One helper now, used everywhere the canvas gets sized.
 function applyCanvasSize(sz) {
     canvas.width  = sz * dpr;
     canvas.height = sz * dpr;
@@ -264,9 +223,7 @@ function initGL() {
 
 // ── Instance buffers ──────────────────────────────────────────────
 // Each pad = one instance. Instance data: rect(4f) + colIdx(1f) + pressed(1f)
-// Rebuilt only when `size` changes now (no more `device` -- there's
-// exactly one canonical cell list, getCachedGrid(), shared with every
-// other consumer in the app).
+// Rebuilt only when `size` changes now.
 
 let instanceCount  = 0;
 let rectBuf        = null;
@@ -458,7 +415,7 @@ onDestroy(() => {
 
 // ── Reactive effects ──────────────────────────────────────────────
 
-// Size change → full rebuild. (No more `device` dependency -- see header.)
+// Size change → full rebuild.
 $effect(() => {
     void size;
     if (gl) {

@@ -1,15 +1,16 @@
 <!-- src/components/studio/controls/KnobControl.svelte -->
 <script>
 let {
-    label    = '',
-    value    = 0,
-    min      = -180,
-    max      = 180,
-    unit     = '',
-    wrap     = false,
-    decimals = 1,
-    hint     = '',
-    onchange = () => {},
+    label       = '',
+    value       = 0,
+    min         = -180,
+    max         = 180,
+    unit        = '',
+    wrap        = false,
+    decimals    = 1,
+    hint        = '',
+    onchange    = () => {},
+    ondragstart = () => {},
 } = $props();
 
 // accumulated rotation for wrap mode (not clamped to min/max)
@@ -38,6 +39,7 @@ let inputStr = $state(value.toFixed(decimals));
 let editing  = $state(false);
 
 function startDrag(e) {
+    ondragstart();
     dragging = true;
     startY   = e.clientY;
     startVal = accumulatedDeg;
@@ -135,7 +137,7 @@ const paths = $derived(arcPath(visualAngle));
         </svg>
         
         <!-- value readout, click to type -->
-        <div style="margin-top:4px;" class="knob-readout" onclick={() => { editing = true; inputStr = displayVal.toFixed(decimals); }}>
+        <div style="margin-top:4px;" class="knob-readout" onclick={() => { ondragstart(); editing = true; inputStr = displayVal.toFixed(decimals); }}>
             {#if editing}
                 <input
                     class="knob-input"

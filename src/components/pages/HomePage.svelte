@@ -21,8 +21,12 @@ const tips = [
     'Aerolux was initially made to quickly make a new gradient pack for the airborneyt palette.',
     'Kinetic was designed way before Velocity. Back in 2025! It started as a JUCE project.',
     'Kinetic: Shift + Drag to box-select multiple nodes at once.',
+    'Kinetic: Imported clips function the same way as any other generator nodes, so you can losslessly edit them!',
+    'Kinetic: The Stage lets you place any device anywhere.',
+    'Kinetic: Generator nodes support saved gradients from Velocity.',
     'Airbot works entirely on-device. Nothing you generate ever leaves your machine.',    
     'Hold Alt/Option to access more information or settings. Try it out here!',
+    'The \'Invert\' node in Kinetic was inspired by 15% in Future Funk (JonathanGD)!'
 ];
 const tip = tips[Math.floor(Math.random() * tips.length)];
 
@@ -33,7 +37,7 @@ const eggs = [
     'this is FIRE!!! extinguish it!!!',
     'on the lights, sure, on the song HELL NO.',
     'The world hasn\'t ended yet.',
-    'Never stop making great stuff.',
+    'Keep making great stuff.',
     'Brought to you by TheRealAirborneOfficial',
 ]
 const egg = eggs[Math.floor(Math.random() * eggs.length)];
@@ -128,7 +132,7 @@ async function handleOpenRecent(recent) {
 
     <!-- version stamp -->
     <p class="al-dim" style="text-align:center;padding-top:var(--space-4)">
-        Aerolux 2.0.0-alpha.2 · by Airborne
+        Aerolux 2.0.0-alpha.3 · by Airborne
     </p>
 
     <NewProjectModal bind:open={newProjectModalOpen} />

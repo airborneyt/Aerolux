@@ -14,6 +14,7 @@ import {
     kinetic, currentInstances, currentWires, addNode, removeNode, moveNode, addWire, removeWire,
     selectNode, selectWire, toggleNode, openComposite, closeComposite,
     groupSelectionIntoComposite, bakeSelection, duplicateNode, ungroupComposite,
+    copySelectionToClipboard, pasteClipboard, pushKineticUndo, undoKinetic, redoKinetic, runKineticBatch,
 } from '../../stores/kinetic.svelte.js';
 import { editor } from '../../stores/velocity.svelte.js';
 import { NODE_DEFS } from '../../lib/aerolux/kinetic/nodeRegistry.js';
@@ -128,7 +129,7 @@ function handleDuplicateSelection() {
     if (multiSelectCount > 0) {
         const ids = [...multiSelected];
         clearMultiSelect();
-        for (const id of ids) duplicateNode(id);
+        runKineticBatch(() => { for (const id of ids) duplicateNode(id); });
         showToast(`Duplicated ${ids.length} node(s)`, 'success', 2000);
     } else if (kinetic.selectedInstanceId) {
         duplicateNode(kinetic.selectedInstanceId);
@@ -171,6 +172,12 @@ function onCtxDuplicate() {
     duplicateNode(ctxMenu.instanceId);
     ctxMenu = null;
 }
+function onCtxCopy() {
+    if (!ctxMenu) return;
+    const ids = multiSelected.has(ctxMenu.instanceId) && multiSelectCount > 0 ? [...multiSelected] : [ctxMenu.instanceId];
+    copySelectionToClipboard(ids);
+    ctxMenu = null;
+}
 function onCtxRename() {
     if (!ctxMenu) return;
     selectNode(ctxMenu.instanceId);
@@ -180,7 +187,9 @@ function onCtxRename() {
 function onCtxDisconnect() {
     if (!ctxMenu) return;
     const id = ctxMenu.instanceId;
-    for (const w of currentWires().filter(w => w.fromId === id || w.toId === id)) removeWire(w.id);
+    runKineticBatch(() => {
+        for (const w of currentWires().filter(w => w.fromId === id || w.toId === id)) removeWire(w.id);
+    });
     ctxMenu = null;
 }
 function onCtxUngroup() {
@@ -317,6 +326,7 @@ function onNodePointerDown(e, instanceId) {
     selectNode(instanceId);
     const inst = currentInstances().find(n => n.instanceId === instanceId);
     if (!inst) return;
+    pushKineticUndo();
     nodeDrag = {
         instanceId,
         startX: e.clientX, startY: e.clientY,
@@ -335,6 +345,15 @@ function onNodeDragUp() {
     nodeDrag = null;
     window.removeEventListener('pointermove', onNodeDragMove);
     window.removeEventListener('pointerup', onNodeDragUp);
+}
+function nudgeSelection(dx, dy) {
+    const ids = multiSelectCount > 0 ? [...multiSelected] : (kinetic.selectedInstanceId ? [kinetic.selectedInstanceId] : []);
+    if (!ids.length) return false;
+    for (const id of ids) {
+        const inst = currentInstances().find(n => n.instanceId === id);
+        if (inst) moveNode(id, (inst.position?.x ?? 0) + dx, (inst.position?.y ?? 0) + dy);
+    }
+    return true;
 }
 function onNodeRightClick(e, instanceId) {
     e.preventDefault();
@@ -386,6 +405,21 @@ function onKeyDown(e) {
         handleDuplicateSelection();
         return;
     }
+    if (mod && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        const ids = multiSelectCount > 0 ? [...multiSelected] : (kinetic.selectedInstanceId ? [kinetic.selectedInstanceId] : []);
+        if (ids.length) copySelectionToClipboard(ids);
+        return;
+    }
+    if (mod && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        const pastedIds = pasteClipboard();
+        if (pastedIds.length) {
+            clearMultiSelect();
+            multiSelected = new Set(pastedIds);
+        }
+        return;
+    }
     if (mod && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         multiSelected = new Set(currentInstances().map(n => n.instanceId));
@@ -396,6 +430,16 @@ function onKeyDown(e) {
         handleGroup();
         return;
     }
+    if (mod && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redoKinetic(); else undoKinetic();
+        return;
+    }
+    if (mod && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        redoKinetic();
+        return;
+    }
     if (e.key === 'Home' || e.key === '.') {
         e.preventDefault();
         resetView();
@@ -403,10 +447,17 @@ function onKeyDown(e) {
     }
     if (e.key === 'Delete' || e.key === 'Backspace') {
         if (multiSelectCount > 0) {
-            for (const id of multiSelected) removeNode(id);
+            runKineticBatch(() => { for (const id of multiSelected) removeNode(id); });
             clearMultiSelect();
         } else if (kinetic.selectedInstanceId) removeNode(kinetic.selectedInstanceId);
         else if (kinetic.selectedWireId) removeWire(kinetic.selectedWireId);
+    }
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        const step = e.shiftKey ? 20 : 4;
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+        if (nudgeSelection(dx, dy)) e.preventDefault();
+        return;
     }
     if (e.key === 'Escape') {
         if (boxSelect) {
@@ -422,6 +473,8 @@ function onKeyDown(e) {
         }
     }
 }
+
+
 onMount(() => window.addEventListener('keydown', onKeyDown));
 onDestroy(() => window.removeEventListener('keydown', onKeyDown));
 
@@ -604,6 +657,9 @@ export function getMultiSelectCount() { return multiSelectCount; }
         </button>
         <button class="ng-ctx-item" onclick={onCtxDuplicate}>
             Duplicate
+        </button>
+        <button class="ng-ctx-item" onclick={onCtxCopy}>
+            Copy
         </button>
         <button class="ng-ctx-item" onclick={onCtxRename}>
             Rename…

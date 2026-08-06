@@ -20,11 +20,22 @@
 -->
 <script>
 import {
-    kinetic, addDevice, removeDevice, setPrimaryDevice, updateDevice, deviceLabel,
+    kinetic, addDevice, removeDevice, setPrimaryDevice, updateDevice, deviceLabel, pushKineticUndo,
+    connectDeviceOutput, disconnectDeviceOutput,
 } from '../../stores/kinetic.svelte.js';
+import { showToast } from '../../lib/aerolux/toast.js';
+import { invoke } from '@tauri-apps/api/core';
 import { kineticPreview } from '../../stores/kineticPreview.svelte.js';
 import { computeAutoPosition, DEVICE_FOOTPRINT } from '../../lib/aerolux/kinetic/devicePlacement.js';
 import { getDeviceGrid } from '../../lib/aerolux/kinetic/sampleDevice.js';
+import { LIVE_PUSH_RATE_PRESETS, getLivePushRateHz, setLivePushRateHz } from '../../lib/aerolux/kinetic/livePush.js';
+
+let pushRateHz = $state(getLivePushRateHz());
+function onPushRateChange(hz) {
+    pushRateHz = hz;
+    setLivePushRateHz(hz);
+}
+function rateLabel(hz) { return hz === 0 ? 'Unlimited' : `${hz} fps`; }
 
 let { open = $bindable(false) } = $props();
 
@@ -52,6 +63,7 @@ let dragging = null;
 function onDevicePointerDown(e, device) {
     e.stopPropagation();
     if (e.button !== 0) return;
+    pushKineticUndo();
     dragging = {
         deviceId: device.id,
         startX: e.clientX, startY: e.clientY,
@@ -76,12 +88,36 @@ function onDragUp() {
 
 // actions ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 function cycleRotation(device) {
+    pushKineticUndo();
     updateDevice(device.id, { rotation: ROTATE_CYCLE[device.rotation] ?? 0 });
 }
 
 function handleAddDevice() {
     const position = computeAutoPosition(kinetic.devices, { newRotation: 0 });
     addDevice({ position, rotation: 0 });
+}
+
+// output port selection (live push) ––––––––––––––––––––––––––––––––
+let availablePorts = $state([]);
+
+async function refreshPorts() {
+    try {
+        availablePorts = await invoke('midi_list_outputs');
+    } catch {
+        availablePorts = [];
+    }
+}
+
+async function handlePortChange(device, portName) {
+    if (!portName) {
+        await disconnectDeviceOutput(device.id);
+        return;
+    }
+    try {
+        await connectDeviceOutput(device.id, portName);
+    } catch (err) {
+        showToast?.(`Could not connect: ${err.message ?? err}`, 'error');
+    }
 }
 
 function handleRemove(deviceId) {
@@ -91,7 +127,6 @@ function handleRemove(deviceId) {
 
 // mini preview grid ––––––––––––––––––––––––––––––––––––––––––––––––
 // display row 0 = canvas y=9 (top), display row 9 = canvas y=0 (bottom)
-// matches every other top-down view in this codebase.
 function frameFor(deviceId) {
     return kineticPreview.framesByDevice.get(deviceId) ?? new Map();
 }
@@ -108,6 +143,7 @@ function padColour(frame, sysexPad) {
 </script>
 
 {#if open}
+{refreshPorts()}
 <div class="stg-overlay" onclick={() => open = false}>
     <div class="stg-modal" onclick={e => e.stopPropagation()}>
         <div class="stg-header">
@@ -131,16 +167,18 @@ function padColour(frame, sysexPad) {
                                width:{fp.width * SCALE}px; height:{fp.height * SCALE}px;"
                         onpointerdown={e => onDevicePointerDown(e, device)}
                     >
-                        <div class="stg-mini-grid" style="grid-template-columns:repeat({MINI_GRID_SIZE},1fr); grid-template-rows:repeat({MINI_GRID_SIZE},1fr)">
-                            {#each Array(MINI_GRID_SIZE) as _, row}
-                                {#each Array(MINI_GRID_SIZE) as _, col}
-                                    {@const cell = cellAt(row, col)}
-                                    {@const hasLight = cell && cell.sysexPad != null}
-                                    <div class="stg-mini-pad"
-                                        style="background:{hasLight ? padColour(frame, cell.sysexPad) : 'transparent'}"
-                                        title={hasLight ? `sysex ${cell.sysexPad}` : ''}></div>
+                        <div class="stg-rotator" style="transform:rotate({device.rotation}deg)">
+                            <div class="stg-mini-grid" style="grid-template-columns:repeat({MINI_GRID_SIZE},1fr); grid-template-rows:repeat({MINI_GRID_SIZE},1fr)">
+                                {#each Array(MINI_GRID_SIZE) as _, row}
+                                    {#each Array(MINI_GRID_SIZE) as _, col}
+                                        {@const cell = cellAt(row, col)}
+                                        {@const hasLight = cell && cell.sysexPad != null}
+                                        <div class="stg-mini-pad"
+                                            style="background:{hasLight ? padColour(frame, cell.sysexPad) : 'transparent'}"
+                                            title={hasLight ? `sysex ${cell.sysexPad}` : ''}></div>
+                                    {/each}
                                 {/each}
-                            {/each}
+                            </div>
                         </div>
                         <div class="stg-device-label">
                             {device.instanceNo}
@@ -165,15 +203,33 @@ function padColour(frame, sysexPad) {
                         >{device.isPrimary ? '★ Primary' : 'Set primary'}</button>
                         <label class="al-toggle-wrap" style="margin:0 6px">
                             <input type="checkbox" checked={device.enabled}
-                                onchange={e => updateDevice(device.id, { enabled: e.target.checked })} />
+                                onchange={e => { pushKineticUndo(); updateDevice(device.id, { enabled: e.target.checked }); }} />
                             <span class="al-dim">Enabled</span>
                         </label>
-                        <label class="stg-logomode" title="Logo and mode both render live in preview; this picks which one actually goes out on real hardware (they share one physical light).">
+                        <label class="stg-logomode" title="Logo and mode both render live in preview; this picks which one gets exported.">
                             <span class="al-dim" style="font-size:10px">Export:</span>
                             <select class="al-select stg-logomode-select" value={device.logoOrMode}
-                                onchange={e => updateDevice(device.id, { logoOrMode: e.target.value })}>
+                                onchange={e => { pushKineticUndo(); updateDevice(device.id, { logoOrMode: e.target.value }); }}>
                                 <option value="logo">Logo</option>
                                 <option value="mode">Mode</option>
+                            </select>
+                        </label>
+                        <label class="stg-logomode" title="Palette snaps colours to the app's 128-colour palette for visual consistency. Sysex sends full 262,144-colour RGB directly to hardware.">
+                            <span class="al-dim" style="font-size:10px">Display:</span>
+                            <select class="al-select stg-logomode-select" value={device.displayMode}
+                                onchange={e => { pushKineticUndo(); updateDevice(device.id, { displayMode: e.target.value }); }}>
+                                <option value="palette">Palette</option>
+                                <option value="sysex">Sysex (full colour)</option>
+                            </select>
+                        </label>
+                        <label class="stg-logomode" title="Live output port">
+                            <span class="al-dim" style="font-size:10px">Output:</span>
+                            <select class="al-select stg-logomode-select" style="width:120px" value={device.outputPort ?? ''}
+                                onchange={e => handlePortChange(device, e.target.value)}>
+                                <option value="">None</option>
+                                {#each availablePorts as port}
+                                    <option value={port}>{port}</option>
+                                {/each}
                             </select>
                         </label>
                         <button
@@ -190,6 +246,15 @@ function padColour(frame, sysexPad) {
             <span class="al-dim" style="font-size:11px;margin-right:auto">
                 {kinetic.devices.length} device{kinetic.devices.length === 1 ? '' : 's'}
             </span>
+            <label class="stg-logomode" title="How often live-connected devices are pushed to real hardware. Independent of preview/render rate.">
+                <span class="al-dim" style="font-size:10px">Push rate:</span>
+                <select class="al-select stg-logomode-select" value={pushRateHz}
+                    onchange={e => onPushRateChange(parseInt(e.target.value))}>
+                    {#each LIVE_PUSH_RATE_PRESETS as hz}
+                        <option value={hz}>{rateLabel(hz)}</option>
+                    {/each}
+                </select>
+            </label>
             <button class="al-btn al-btn-blue" onclick={handleAddDevice}>+ Add device</button>
         </div>
     </div>
@@ -210,7 +275,7 @@ function padColour(frame, sysexPad) {
     border: 1px solid var(--color-border-bright);
     border-radius: var(--radius-xl);
     padding: var(--space-6);
-    width: min(92vw, 780px);
+    width: min(92vw, 880px);
     max-height: 88vh;
     overflow-y: auto;
     backdrop-filter: blur(20px) saturate(1.4);
@@ -246,6 +311,13 @@ function padColour(frame, sysexPad) {
 .stg-device.primary { border-color: var(--color-accent); box-shadow: var(--glow-accent); }
 .stg-device.disabled { opacity: 0.4; }
 
+.stg-rotator {
+    display: flex;
+    width: 100%;
+    aspect-ratio: 1;
+    flex-shrink: 0;
+    transition: transform var(--duration-base, 200ms) var(--ease-smooth, ease);
+}
 .stg-mini-grid {
     display: grid;
     gap: 1px;
@@ -259,7 +331,7 @@ function padColour(frame, sysexPad) {
     font-family: 'Geist Mono', monospace;
     color: rgba(255,255,255,0.6);
     padding: 2px 4px;
-    background: rgba(0,0,0,0.4);
+    background: rgba(0,0,0,0.2);
     display: flex; align-items: center; gap: 3px;
 }
 .stg-primary-badge { color: var(--color-accent); }

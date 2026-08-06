@@ -31,7 +31,7 @@ let { open = $bindable(false) } = $props();
         </div>
         <div>
           <p class="al-label">Launchpad Preview</p>
-          <p class="al-help-p">Enable WebMIDI. Select device. Gradient auto-sends on every change. Steps 1–8 fill row 5 on the Launchpad, steps 9–16 fill row 4.</p>
+          <p class="al-help-p">Select your output device. Gradient auto-sends on every change. Steps 1–8 fill row 5 on the Launchpad, steps 9–16 fill row 4.</p>
           <p class="al-help-p">You can inject an Aerolux gradient into an existing .mid file from Ableton to preview how the gradient will look like before exporting it.</p>
 
           <p class="al-label">Airbot (Generative)</p>

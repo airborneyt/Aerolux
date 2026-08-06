@@ -1,12 +1,12 @@
 <!-- src/components/studio/NodeInspector.svelte -->
 <!--
-    auto-generates inspector controls from a node's descriptor (NODE_DEFS).
-    param-editing UI that never touches the runtime field representation.
+    Auto-generates inspector controls from a node's descriptor (NODE_DEFS).
+    Purely param-editing UI -- never touches the runtime Field representation.
 -->
 <script>
 import {
     kinetic, currentInstances, setParam, toggleNode, removeNode,
-    setTimeRange, openComposite, rebakeComposite, unbakeComposite, renameNode,
+    setTimeRange, openComposite, rebakeComposite, unbakeComposite, renameNode, deviceLabel,
 } from '../../stores/kinetic.svelte.js';
 import { registerRenameRequestHandler, unregisterRenameRequestHandler } from '../../stores/kineticUiSignals.svelte.js';
 import { onMount, onDestroy } from 'svelte';
@@ -15,32 +15,38 @@ import { editor } from '../../stores/velocity.svelte.js';
 import KnobControl from './controls/KnobControl.svelte';
 import ToggleControl from './controls/ToggleControl.svelte';
 import SelectControl from './controls/SelectControl.svelte';
-import ClipImportControl from './controls/ClipImportControl.svelte';
 import PaletteColourControl from './controls/PaletteColourControl.svelte';
+import ColourOrGradientControl from './controls/ColourOrGradientControl.svelte';
+import ClipImportControl from './controls/ClipImportControl.svelte';
 
 const instance = $derived(
     currentInstances().find(n => n.instanceId === kinetic.selectedInstanceId) ?? null
 );
 const def = $derived(instance ? NODE_DEFS[instance.nodeId] : null);
 
-// the output node's `target` param has only 'canvas' as a static option in
-// NODE_DEFS. specific device ids get appended here, and 'group' is a
-// synthetic target only ever set programmatically by grouping, never offered
-// as a manual choice here.
+// The Output node's `target` param has only 'canvas' as a static option in
+// NODE_DEFS -- specific device ids get appended here (Phase 4), and 'group'
+// is a synthetic target only ever set programmatically by grouping (Step 2),
+// never offered as a manual choice here.
 const outputTargetOptions = $derived([
     { value: 'canvas', label: 'Canvas (all devices)' },
     ...kinetic.devices.map(d => ({
         value: d.id,
-        label: `${d.model}${d.isPrimary ? ' — primary' : ''}`,
+        label: `${deviceLabel(d)}${d.isPrimary ? ' — primary' : ''}`,
     })),
 ]);
 
-// rename –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-// double-click the label to rename inline (below). ALSO reachable from
-// NodeGraph.svelte's context menu. that path now calls requestRename()
+// ── Rename ─────────────────────────────────────────────────────────────
+// Double-click the label to rename inline (below). ALSO reachable from
+// NodeGraph.svelte's context menu, which previously used window.prompt()
+// -- unreliable/frequently unimplemented in embedded webviews, and
+// reported as simply not working. That path now calls requestRename()
 // (kineticUiSignals.svelte.js), which this component answers by entering
-// the exact same inline-edit mode as a double-click would, via a
-// registered callback.
+// the exact same inline-edit mode as a double-click would, via a plain
+// registered callback rather than reactive $state -- writing to a $state
+// that the SAME effect reads as a dependency is a classic
+// self-retriggering footgun in Svelte 5 runes, and a plain function call
+// sidesteps it entirely.
 let renaming = $state(false);
 let renameDraft = $state('');
 
@@ -68,7 +74,7 @@ onMount(() => {
     return () => unregisterRenameRequestHandler(handler);
 });
 
-// selecting a different node while mid-rename abandons the edit rather
+// Selecting a different node while mid-rename abandons the edit rather
 // than risk applying a stale draft to the newly-selected node.
 let lastInstanceId = null;
 $effect(() => {
@@ -79,7 +85,7 @@ $effect(() => {
     }
 });
 
-// active range (timeRange) –––––––––––––––––––––––––––––––––––––––––
+// ── Active range (timeRange) ─────────────────────────────────────────────
 const hasRange = $derived(!!instance?.timeRange);
 let draftStart = $state(0);
 let draftEnd   = $state(480);
@@ -100,7 +106,7 @@ function commitRange() {
     setTimeRange(instance.instanceId, draftStart, draftEnd);
 }
 
-// bake –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+// ── Bake (Step 3) ──────────────────────────────────────────────────────
 function handleRebake() {
     if (!instance) return;
     rebakeComposite(instance.instanceId, { palette: editor.palette, devices: kinetic.devices }, {});
@@ -180,11 +186,6 @@ function handleUnbake() {
                         label={p.label} value={value} hint={p.hint ?? ''}
                         onchange={v => setParam(instance.instanceId, key, v)}
                     />
-                {:else if p.type === 'import'}
-                    <ClipImportControl
-                        label={p.label} value={value} instanceId
-                        onchange={v => setParam(instance.instanceId, key, v)}
-                    />    
                 {:else if p.type === 'select'}
                     <SelectControl
                         label={p.label} value={value}
@@ -193,7 +194,22 @@ function handleUnbake() {
                         onchange={v => setParam(instance.instanceId, key, v)}
                     />
                 {:else if p.type === 'paletteColour'}
+                    <!-- Legacy dispatch, kept alive for un-migrated nodes.
+                         See nodeRegistry.patch.md's "remaining mechanical
+                         follow-up" list -- once every colourIdx param is
+                         migrated to 'colourOrGradient', this branch (and
+                         PaletteColourControl.svelte itself) can be deleted. -->
                     <PaletteColourControl
+                        label={p.label} value={value}
+                        onchange={v => setParam(instance.instanceId, key, v)}
+                    />
+                {:else if p.type === 'colourOrGradient'}
+                    <ColourOrGradientControl
+                        label={p.label} value={value} hint={p.hint ?? ''}
+                        onchange={v => setParam(instance.instanceId, key, v)}
+                    />
+                {:else if p.type === 'clipImport'}
+                    <ClipImportControl
                         label={p.label} value={value}
                         onchange={v => setParam(instance.instanceId, key, v)}
                     />

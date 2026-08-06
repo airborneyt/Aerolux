@@ -1,25 +1,23 @@
 // src/lib/aerolux/kinetic/nodes/generators/ripple.js
 // multiple overlapping pulses at configurable intervals.
+// might be updated to support different ring shapes in the future.
 
-// might be updated to support different ring chapes in the future.
-
-import { resolvePaletteColour, clamp63 } from "../../sharedHelpers";
+import { resolveColourOrGradient, resolveCycleMode, resolveCycleOpts } from '../../sharedHelpers.js';
+import { colourCycleField } from '../../field.js';
 
 export function createRippleField(params, context, inputField, inputFieldB, resolveParam, integrateParam) {
     const {
         originX        = 4.5,
         originY        = 4.5,
-        ringWidth      = 1.2, // how thick a single ripple ring is
-        colourIdx      = 8,
-        rippleInterval = 96,  // ticks between successive ripple launches
-        rippleCount    = 4,   // max simultaneous ripples considered (bounds the loop)
-        decay          = 0.7, // brightness multiplier per ripple age-step (older = dimmer)
+        ringWidth      = 1.2,
+        rippleInterval = 96,  // ticks
+        rippleCount    = 4,   // max simultaneous ripples
+        decay          = 0.7,
     } = params;
 
-    const rgb = resolvePaletteColour(context?.palette, colourIdx);
-    const interval = Math.max(rippleInterval, 1); // guard against div-by-zero/negative
+    const interval = Math.max(rippleInterval, 1);
 
-    return {
+    const shapeField = {
         kind: 'stateless',
         sample(x, y, t) {
             const dist = Math.hypot(x - originX, y - originY);
@@ -42,8 +40,11 @@ export function createRippleField(params, context, inputField, inputFieldB, reso
                 }
             }
 
-            if (bestBrightness <= 0) return null;
-            return rgb.map(v => clamp63(v * bestBrightness));
+            return bestBrightness > 0 ? bestBrightness : null;
         },
     };
+
+    const resolveColour = resolveColourOrGradient(params.colour, context);
+    const cycleMode = resolveCycleMode(params.colour);
+    return colourCycleField(shapeField, resolveColour, cycleMode, { ...resolveCycleOpts(params.colour) });
 }

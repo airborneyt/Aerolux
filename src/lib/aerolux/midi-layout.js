@@ -252,15 +252,6 @@ export function cellByExportNote(cells, note, logoOrMode = 'logo') {
 
 // SysEx message builder ––––––––––––––––––––––––––––––––––––––––––––
 
-/**
- * build a SysEx RGB bulk message from a colour map keyed by coordinate.
- * @param {Array} cells               - result of buildLaunchpadGrid()
- * @param {Map<string,[number,number,number]>} colourMap
- *        - keys are "x,y" strings, values are 6-bit [r,g,b]
- * @param {'logo'|'mode'} logoOrMode  - which one actually drives the
- *        shared real pad 99 for this message
- * @returns {Uint8Array}
- */
 export function buildSysexMessage(cells, colourMap, logoOrMode = 'logo') {
   const resolved = resolveLogoModeForExport(cells, logoOrMode);
   const padData = [];
@@ -268,7 +259,7 @@ export function buildSysexMessage(cells, colourMap, logoOrMode = 'logo') {
 
   for (const cell of resolved) {
     if (cell.sysexPad === null) continue;
-    // logo/mode cells must be sent under their real shared address, not
+    // logo/mode cells must be sent under their REAL shared address, not
     // their preview-only sysexPad (100 for mode isn't a real pad at all).
     const realPad = cell.realSysexPad ?? cell.sysexPad;
     if (seenPads.has(realPad)) continue;

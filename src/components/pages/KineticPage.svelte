@@ -24,6 +24,7 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
 import {
     kinetic, getPrimaryDevice, currentInstances, currentWires, advancePlayhead, play, pause, deviceLabel,
+    availableGradients,
 } from '../../stores/kinetic.svelte.js';
 import { nodeDragGhost } from '../../stores/kineticUiSignals.svelte.js';
 import { kineticPreview, tickPreview } from '../../stores/kineticPreview.svelte.js';
@@ -40,28 +41,28 @@ import SplinePanel from '../studio/SplinePanel.svelte';
 import TransportBar from '../studio/TransportBar.svelte';
 import MultiDevicePreview from '../studio/MultiDevicePreview.svelte';
 import StageModal from '../modals/StageModal.svelte';
-
+ 
 let stageOpen = $state(false);
 let exporting = $state(false);
 let baking = $state(false);
 let multiSelectCount = $state(0);
 let nodeGraphRef = $state(null);
-
+ 
 let rafId = null;
 let lastFrameTime = null;
-
+ 
 function loop(now) {
     if (lastFrameTime == null) lastFrameTime = now;
     const dtSeconds = (now - lastFrameTime) / 1000;
     lastFrameTime = now;
     advancePlayhead(dtSeconds); // no-op while paused
-    tickPreview(kinetic.transport.playheadTick);
+    tickPreview(kinetic.transport.playheadTick, dtSeconds);
     rafId = requestAnimationFrame(loop);
 }
-
+ 
 onMount(() => { rafId = requestAnimationFrame(loop); });
 onDestroy(() => { if (rafId) cancelAnimationFrame(rafId); });
-
+ 
 // global spacebar play/pause –––––––––––––––––––––––––––––––––––––––
 function isTyping(e) {
     const tag = e.target?.tagName;
@@ -76,7 +77,7 @@ function onGlobalKeyDown(e) {
 }
 onMount(() => window.addEventListener('keydown', onGlobalKeyDown));
 onDestroy(() => window.removeEventListener('keydown', onGlobalKeyDown));
-
+ 
 // header actions –––––––––––––––––––––––––––––––––––––––––––––––––––
 async function handleBakeClick() {
     if (multiSelectCount < 1) {
@@ -85,9 +86,9 @@ async function handleBakeClick() {
     }
     if (!nodeGraphRef || baking) return;
     baking = true;
-    // let the "Baking…" label actually paint before the synchronous
-    // precompute (bake.js's loop) blocks the main thread. otherwise a
-    // slow bake gives zero visual feedback that anything happened at all.
+    // the "Baking..." label paints before bake.js's loop blocks the main thread 
+    // so it always gives feedback that it's working in the background. otherwise
+    // a slow bake gives zero visual feedback that anything happened at all.
     await new Promise(requestAnimationFrame);
     try {
         nodeGraphRef.bakeCurrentSelection();
@@ -95,15 +96,14 @@ async function handleBakeClick() {
         baking = false;
     }
 }
-
-// one .mid file per device
+ 
 async function handleExport() {
     exporting = true;
     try {
-        const context = { palette: editor.palette, devices: kinetic.devices };
+        const context = { palette: editor.palette, devices: kinetic.devices, gradients: availableGradients.map };
         const compiled = compileGraph(currentInstances(), currentWires(), context, resolveField);
         const enabledDevices = kinetic.devices.filter(d => d.enabled);
-
+ 
         let exportedCount = 0;
         for (const device of enabledDevices) {
             const grid = getDeviceGrid();
@@ -111,17 +111,17 @@ async function handleExport() {
                 totalDuration: kinetic.transport.totalDuration, tickStep: 4, palette: editor.palette,
                 timeDiv: kinetic.transport.timeDiv, bpm: kinetic.transport.bpm,
             });
-
+ 
             const path = await save({
-                defaultPath: `${deviceLabel(device).toLowerCase().replace(/\s+/g, '_')}_${device.instanceNo}.mid`,
+                defaultPath: `${deviceLabel(device.instanceNo).toLowerCase().replace(/\s+/g, '_')}_${device.id.slice(-6)}.mid`,
                 filters: [{ name: 'MIDI', extensions: ['mid'] }],
             });
-            if (!path) continue; // user cancelled this device's dialog = skip, don't abort the rest
-
+            if (!path) continue; // user cancelled this device's dialog = skip
+ 
             await writeFile(path, bytes);
             exportedCount++;
         }
-
+ 
         if (exportedCount > 0) showToast(`Exported ${exportedCount} device file(s)`, 'success');
         else showToast('Export cancelled', 'info');
     } catch (err) {
@@ -131,9 +131,9 @@ async function handleExport() {
     }
 }
 </script>
-
+ 
 <div class="kp-shell">
-
+ 
     <header class="kp-header">
         <span class="kp-title">Kinetic</span>
         <div class="kp-header-actions">
@@ -151,28 +151,28 @@ async function handleExport() {
             </button>
         </div>
     </header>
-
+ 
     <div class="kp-content-row">
         <aside class="kp-nodemenu">
             <NodeMenu />
         </aside>
-
+ 
         <div class="kp-preview">
             {#if kinetic.devices.length > 1}
                 <p class="al-hint-text" style="text-align:center;padding-top:6px">{kinetic.devices.length} devices on the Stage.</p>
             {/if}
             <MultiDevicePreview />
         </div>
-
+ 
         <aside class="kp-inspector">
             <NodeInspector />
         </aside>
     </div>
-
+ 
     <div class="kp-transport">
         <TransportBar />
     </div>
-
+ 
     <div class="kp-bottom-row">
         <div class="kp-graph">
             <NodeGraph bind:this={nodeGraphRef} bind:boundMultiSelectCount={multiSelectCount} />
@@ -181,18 +181,18 @@ async function handleExport() {
             <SplinePanel />
         </div>
     </div>
-
+ 
 </div>
-
+ 
 {#if nodeDragGhost.active}
     <div class="kp-drag-ghost" style="left:{nodeDragGhost.x}px; top:{nodeDragGhost.y}px">
         <span class="kp-drag-ghost-icon">{nodeDragGhost.icon}</span>
         <span>{nodeDragGhost.label}</span>
     </div>
 {/if}
-
+ 
 <StageModal bind:open={stageOpen} />
-
+ 
 <style>
 .kp-shell {
     display: flex;
@@ -200,7 +200,7 @@ async function handleExport() {
     height: 100vh;
     overflow: hidden;
 }
-
+ 
 .kp-header {
     flex-shrink: 0;
     height: 44px;
@@ -213,28 +213,28 @@ async function handleExport() {
 }
 .kp-title { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
 .kp-header-actions { display: flex; gap: 8px; }
-
+ 
 .kp-content-row {
     display: grid;
     grid-template-columns: 220px 1fr 300px;
     flex: 1 1 55vh;
     min-height: 0;
 }
-
+ 
 .kp-nodemenu {
     border-right: 1px solid var(--color-border);
     background: var(--color-surface-0);
     overflow: hidden;
     min-height: 0;
 }
-
+ 
 .kp-preview {
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     min-height: 0;
 }
-
+ 
 .kp-inspector {
     border-left: 1px solid var(--color-border);
     background: var(--color-surface-0);
@@ -242,16 +242,16 @@ async function handleExport() {
     padding: 14px;
     min-height: 0;
 }
-
+ 
 .kp-transport { flex-shrink: 0; }
-
+ 
 .kp-bottom-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
     flex: 1 1 35vh;
     min-height: 0;
 }
-
+ 
 .kp-graph {
     position: relative;
     overflow: hidden;
@@ -262,7 +262,7 @@ async function handleExport() {
     overflow: hidden;
     border-top: 1px solid var(--color-border);
 }
-
+ 
 .kp-drag-ghost {
     position:        fixed;
     z-index:         9999;

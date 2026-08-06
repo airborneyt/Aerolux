@@ -1,37 +1,28 @@
 <!-- src/components/studio/controls/ClipImportControl.svelte -->
+<!--
+    Kinetic's Clip Import param control -- loads a .mid file, parses it via
+    the REBUILT kinetic/clipImport.js (not Velocity's nodes/clipImport.js;
+    different parser, different output shape -- Kinetic's clipData feeds
+    clipToField directly, it has no relationship to Velocity's gradient
+    pipeline). Sets the whole parsed clipData object as this node's
+    `clipData` param via the normal onchange(value) contract every other
+    control here already follows.
+
+    This is the Inspector-side half of closing the gap flagged in
+    KINETIC-NODE-AUTHORING-GUIDE.md §4.1 ("clipData param control is not
+    yet wired into the Inspector") -- paired with NodeInspector.svelte's
+    dispatch for type 'clipImport'.
+-->
 <script>
-import { open }     from '@tauri-apps/plugin-dialog';
+import { open } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
-import { kinetic }  from '../../../stores/kinetic.svelte.js';
 import { showToast } from '../../../lib/aerolux/toast.js';
-import { parseClipFile } from '../../../lib/aerolux/kinetic/clipImport.js' ;
+import { parseClipFile } from '../../../lib/aerolux/kinetic/clipImport.js';
 
-let { instanceId, label = 'File', value = null, onchange = () => {} } = $props();
+let { label = 'File', value = null, onchange = () => {} } = $props();
 
-let loading = $state(false);
-let fileLabel = typeof value === 'string'
-    ? value
-    : value && value.noteOns
-        ? 'Loaded clip'
-        : 'No file loaded';
-
-// State for the controls
-let transpose = $state(0); // -12 to +12
-let timeStretch = $state(1); // 0.5 to 2.0
-
-// Helper to clamp values
-const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
-
-// Update UI when internal state changes
-function updateUI() {
-    if (value) {
-        onchange({
-            ...value,
-            transpose,
-            timeStretch
-        });
-    }
-}
+let loading  = $state(false);
+let fileName = $state(value ? 'Loaded clip' : 'No file loaded');
 
 async function importFile() {
     const path = await open({
@@ -45,15 +36,14 @@ async function importFile() {
         const bytes  = await readFile(path);
         const parsed = parseClipFile(bytes);
 
-        // Store in kinetic.loadedClips keyed by this node's instanceId.
-        kinetic.loadedClips[instanceId] = { ...parsed, rawBytes: bytes };
-
-        const name = path.split('/').pop() ?? path.split('\\').pop() ?? 'clip.mid';
-        fileLabel = name;
+        fileName = path.split('/').pop() ?? path.split('\\').pop() ?? 'clip.mid';
         onchange(parsed);
 
-        const pads = new Set(parsed.noteOns.map(e => e.noteNum)).size;
-        showToast(`Loaded: ${parsed.numTrks} track(s) · ${parsed.noteOns.length} events · ${pads} pads`, 'success', 4000);
+        const noteCount = new Set(parsed.noteOns.map(e => e.noteNum)).size;
+        showToast(
+            `Loaded: ${parsed.numTrks} track(s) · ${parsed.noteOns.length} events · ${noteCount} note(s) · ${Math.round(parsed.bpm)} BPM`,
+            'success', 4000
+        );
     } catch (err) {
         showToast('Import failed: ' + err.message, 'error');
     } finally {
@@ -62,39 +52,33 @@ async function importFile() {
 }
 
 function clearFile() {
-    delete kinetic.loadedClips[instanceId];
-    fileLabel = 'No file loaded';
-    value = null;
+    fileName = 'No file loaded';
     onchange(null);
-    transpose = 0;
-    timeStretch = 1;
 }
 
-const hasClip = $derived(!!kinetic.loadedClips[instanceId]);
+const hasClip = $derived(!!value?.noteOns?.length);
 </script>
 
-<div style="display:flex;flex-direction:column;gap:6px">
+<div class="cic-wrap">
     <p class="al-label">{label}</p>
-    
-    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <div class="cic-row">
         <button class="al-btn al-btn-blue" onclick={importFile} disabled={loading}>
             {loading ? 'Loading…' : '⬆ Load .mid'}
         </button>
         {#if hasClip}
-            <button class="al-btn al-btn-danger" onclick={clearFile}>✕ Clear</button>
+            <button class="al-btn al-btn-danger" onclick={clearFile}>✕</button>
         {/if}
     </div>
-
+    <p class="al-hint-text">{fileName}</p>
     {#if hasClip}
-        {@const clip = kinetic.loadedClips[instanceId]}
-        
-        <!-- Metadata -->
         <p class="al-hint-text">
-            {clip.numTrks} track(s) · {clip.noteOns.length} events
-        </p>
-
-        <p class="al-hint-text">
-            Transpose shifts the pitch relative to the device layout.
+            {value.numTrks} track(s) · {value.noteOns.length} events ·
+            {Math.round(value.bpm)} BPM · {value.durationSec.toFixed(1)}s
         </p>
     {/if}
 </div>
+
+<style>
+.cic-wrap { display: flex; flex-direction: column; gap: 6px; }
+.cic-row  { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+</style>

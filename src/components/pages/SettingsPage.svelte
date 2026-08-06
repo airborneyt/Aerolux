@@ -461,7 +461,7 @@ async function resetAllSettings() {
                         <div>
                             <div class="al-setting-label">Version</div>
                         </div>
-                        <span class="al-mono">2.0.0</span>
+                        <span class="al-mono">2.0.0-alpha.3</span>
                     </div>
                     <div class="al-setting-row">
                         <div>

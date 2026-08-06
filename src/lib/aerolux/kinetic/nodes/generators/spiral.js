@@ -4,7 +4,8 @@
 // a rotating arm whose angle, at a given radius, winds further behind/ahead of the arm's overall rotation the further out it goes.
 // tightness controls how many radians of winding per canvas unit of radius.
 
-import { resolvePaletteColour } from "../../sharedHelpers";
+import { resolveColourOrGradient, resolveCycleMode, resolveCycleOpts } from "../../sharedHelpers";
+import { colourCycleField } from "../../field";
 
 export function createSpiralField(params, context, inputField, inputFieldB, resolveParam, integrateParam) {
     const {
@@ -12,14 +13,12 @@ export function createSpiralField(params, context, inputField, inputFieldB, reso
         centerY   = 4.5,
         tightness = 1.2,   // radians of angular winding per canvas unit of radius
         armWidth  = 0.6,   // angular band half-width (radians) around the arm
-        colourIdx = 8,
         clockwise = true,
     } = params;
-
-    const rgb = resolvePaletteColour(context?.palette, colourIdx);
+    
     const dir = clockwise ? 1 : -1;
 
-    return {
+    const shapeField = {
         kind: 'stateless',
         sample(x, y, t) {
             const dx = x - centerX, dy = y - centerY;
@@ -36,7 +35,11 @@ export function createSpiralField(params, context, inputField, inputFieldB, reso
             if (diff > Math.PI) diff -= 2 * Math.PI;
             if (diff < -Math.PI) diff += 2 * Math.PI;
 
-            return Math.abs(diff) < armWidth ? rgb : null;
+            return Math.abs(diff) < armWidth ? 1 : null;
         },
     };
+
+    const resolveColour = resolveColourOrGradient(params.colour, context);
+    const cycleMode = resolveCycleMode(params.colour);
+    return colourCycleField(shapeField, resolveColour, cycleMode, { ...resolveCycleOpts(params.colour) });
 }
