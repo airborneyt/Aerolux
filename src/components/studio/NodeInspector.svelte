@@ -15,7 +15,6 @@ import { editor } from '../../stores/velocity.svelte.js';
 import KnobControl from './controls/KnobControl.svelte';
 import ToggleControl from './controls/ToggleControl.svelte';
 import SelectControl from './controls/SelectControl.svelte';
-import PaletteColourControl from './controls/PaletteColourControl.svelte';
 import ColourOrGradientControl from './controls/ColourOrGradientControl.svelte';
 import ClipImportControl from './controls/ClipImportControl.svelte';
 
