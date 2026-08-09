@@ -1,17 +1,8 @@
 <!-- src/components/studio/controls/ClipImportControl.svelte -->
 <!--
-    Kinetic's Clip Import param control -- loads a .mid file, parses it via
-    the REBUILT kinetic/clipImport.js (not Velocity's nodes/clipImport.js;
-    different parser, different output shape -- Kinetic's clipData feeds
-    clipToField directly, it has no relationship to Velocity's gradient
-    pipeline). Sets the whole parsed clipData object as this node's
-    `clipData` param via the normal onchange(value) contract every other
-    control here already follows.
+    clip import param control
 
-    This is the Inspector-side half of closing the gap flagged in
-    KINETIC-NODE-AUTHORING-GUIDE.md §4.1 ("clipData param control is not
-    yet wired into the Inspector") -- paired with NodeInspector.svelte's
-    dispatch for type 'clipImport'.
+    handles parsing
 -->
 <script>
 import { open } from '@tauri-apps/plugin-dialog';

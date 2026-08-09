@@ -2,7 +2,6 @@
 import { onMount, onDestroy } from 'svelte';
 import { editor } from '../../stores/velocity.svelte.js';
 import { undo, redo, undoState } from '../../stores/velocityActions.svelte.js';
-import { initSound } from '../../lib/aerolux/sound.js';
 import { showToast } from '../../lib/aerolux/toast.js';
 import { initKeyboardShortcuts } from '../../lib/aerolux/keyboard.js';
 
@@ -46,8 +45,6 @@ $effect(() => {
 });
 
 onMount(() => {
-    initSound();
-
     // keyboard shortcuts, uses $state palettePanel so closure
     // sees the real API after PalettePanel.svelte sets it via bind:api
     initKeyboardShortcuts({

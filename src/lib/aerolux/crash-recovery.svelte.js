@@ -17,6 +17,7 @@
 
 import { LazyStore } from '@tauri-apps/plugin-store';
 import { editor } from '../../stores/velocity.svelte.js';
+import { kinetic } from '../../stores/kinetic.svelte.js';
 import { navigate } from '../../stores/router.svelte.js';
 import { projects } from '../../stores/projects.svelte.js';
 import { emitter } from './aerolux-init.svelte.js';
@@ -24,6 +25,10 @@ import {
   serializeVelocityState,
   deserializeVelocityState,
 } from './project-velocity.js';
+import {
+  serializeKineticState,
+  deserializeKineticState,
+} from './project-kinetic.js';
 
 const sessionStore  = new LazyStore('session.json');
 const autosaveStore = new LazyStore('autosave.json');
@@ -87,7 +92,7 @@ function buildAutosavePayload() {
       originalPath: projects.currentPath,
       savedAt:      Date.now(),
       velocity:     serializeVelocityState(editor),
-      kinetic:      buildKineticAutosavePayload(), // stub, see below
+      kinetic:      null,
     };
   }
   if (projects.currentType === 'kinetic') {
@@ -97,15 +102,9 @@ function buildAutosavePayload() {
       originalPath: projects.currentPath,
       savedAt:      Date.now(),
       velocity:     null,
-      kinetic:      buildKineticAutosavePayload(),
+      kinetic:      serializeKineticState(kinetic),
     };
   }
-  return null;
-}
-
-// todo: replace with real kinetic.svelte.js serialisation once
-// project-kinetic.js exists. 
-function buildKineticAutosavePayload() {
   return null;
 }
 
@@ -135,6 +134,7 @@ function scheduleAutosave() {
  */
 export function startAutosaveWatcher() {
   emitter.on('gradient:change', scheduleAutosave);
+  emitter.on('kinetic:change', scheduleAutosave);
   // manual save (success or otherwise) already clears the autosave
   // via markCleanExit's sibling path. see applyAutosave()/clearAutosave()
   // usage in projects.svelte.js's writeCurrentProjectTo if you want
@@ -150,6 +150,15 @@ function applyRecoveredVelocity(snapshot) {
   projects.currentName      = snapshot.name ?? 'Recovered Project';
   projects.currentCreatedAt = Date.now();
   projects.isDirty          = true; // recovered work is, by definition, unsaved
+}
+
+function applyRecoveredKinetic(snapshot) {
+  Object.assign(kinetic, deserializeKineticState(snapshot.kinetic));
+  projects.currentPath      = null;
+  projects.currentType      = snapshot.type;
+  projects.currentName      = snapshot.name ?? 'Recovered Project';
+  projects.currentCreatedAt = Date.now();
+  projects.isDirty          = true;
 }
 
 // startup check ─────────────────────────────────────────────────────
@@ -171,10 +180,6 @@ export async function initCrashRecovery() {
   const snapshot = await autosaveStore.get('snapshot');
   if (!snapshot) return;
 
-  // kinetic-only crashes currently have nothing recoverable
-  // Remove this guard once kinetic autosave is real
-  if (snapshot.type === 'kinetic' && !snapshot.kinetic) return;
-
   const choice = await new Promise(resolve => {
     recoveryPrompt.data = snapshot;
     recoveryPrompt.open = true;
@@ -186,8 +191,10 @@ export async function initCrashRecovery() {
       applyRecoveredVelocity(snapshot);
       navigate('velocity');
     }
-    // kinetic restore: todo once project-kinetic.js exists.
-    // when implemented, this should call navigate('kinetic') instead.
+    if (snapshot.type === 'kinetic') {
+      applyRecoveredKinetic(snapshot);
+      navigate('kinetic');
+    }
   }
 
   await clearAutosave();

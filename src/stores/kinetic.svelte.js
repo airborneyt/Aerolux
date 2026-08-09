@@ -833,6 +833,87 @@ export function addAutoPoint(instanceId, paramKey, tick, value) {
     node.automation[paramKey] = lane;
 }
 
+/**
+    moves/edits an existing breakpoint, identified by its current tick
+    (before this call). any combination of tick/value/interp can be patched
+    at once. if the new tick would land on top of a different existing point, 
+    that other point is replaced (removed).
+
+@param {string} instanceId
+@param {string} paramKey
+@param {number} originalTick
+@param {{tick?:number, value?:number, interp?:string}} patch
+*/
+export function updateAutoPoint(instanceId, paramKey, originalTick, patch) {
+    pushKineticUndo();
+    invalidateBakesAlongPath();
+    const node = currentInstances().find(n => n.instanceId === instanceId);
+    const lane = node?.automation?.[paramKey];
+    if (!lane) return;
+    const point = lane.find(p => p.tick === originalTick);
+    if (!point) return;
+
+    const newTick   = patch.tick   ?? point.tick;
+    const newValue  = patch.value  ?? point.value;
+    const newInterp = patch.interp ?? point.interp ?? 'linear';
+
+    const next = lane.filter(p => p.tick !== originalTick && p.tick !== newTick);
+    next.push({ tick: newTick, value: newValue, interp: newInterp });
+    next.sort((a, b) => a.tick - b.tick);
+    node.automation[paramKey] = next;
+}
+
+/**
+    batch delete. SplinePanel's multi-select Delete/Backspace uses this
+    instead of calling the single-point removeAutoPoint in a loop, so it's
+    one invalidateBakesAlongPath() + one reassignment regardless of how many
+    points are selected, not N of each (performance saving + doesnt hammer undo).
+
+@param {string} instanceId
+@param {string} paramKey
+@param {number[]} ticks
+*/
+export function removeAutoPoints(instanceId, paramKey, ticks) {
+    pushKineticUndo();
+    invalidateBakesAlongPath();
+    const node = currentInstances().find(n => n.instanceId === instanceId);
+    const lane = node?.automation?.[paramKey];
+    if (!lane) return;
+    const ticksSet = new Set(ticks);
+    node.automation[paramKey] = lane.filter(p => !ticksSet.has(p.tick));
+}
+
+/**
+    duplicates the given breakpoints, offsetting every clone's tick by the
+    same `tickOffset`. a clone that would land on an existing point's tick
+    replaces it). returns the clones' new ticks.
+
+@param {string} instanceId
+@param {string} paramKey
+@param {number[]} ticks
+@param {number} tickOffset
+@returns {number[]}
+*/
+export function duplicateAutoPoints(instanceId, paramKey, ticks, tickOffset) {
+    pushKineticUndo();
+    invalidateBakesAlongPath();
+    const node = currentInstances().find(n => n.instanceId === instanceId);
+    const lane = node?.automation?.[paramKey];
+    if (!lane?.length) return [];
+
+    const ticksSet = new Set(ticks);
+    const source = lane.filter(p => ticksSet.has(p.tick));
+    if (!source.length) return [];
+
+    const clones = source.map(p => ({ tick: p.tick + tickOffset, value: p.value, interp: p.interp ?? 'linear' }));
+    const cloneTickSet = new Set(clones.map(c => c.tick));
+    const next = lane.filter(p => !cloneTickSet.has(p.tick)).concat(clones);
+    next.sort((a, b) => a.tick - b.tick);
+    node.automation[paramKey] = next;
+
+    return clones.map(c => c.tick);
+}
+
 export function removeAutoPoint(instanceId, paramKey, tick) {
     pushKineticUndo();
     invalidateBakesAlongPath();

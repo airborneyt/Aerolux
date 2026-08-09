@@ -13,6 +13,7 @@ const SOUND_FILES = {
   aiGenerateFail:    '/sounds/ai_generate_fail.mp3',
   exportSuccess:     '/sounds/export_success.mp3',
   downloadSuccess:   '/sounds/download_success.mp3',
+  incorrect_buzzer_noise: '/sounds/wrong-answer-buzzer.mp3'
 };
 
 const SOUND_VOLUMES = {

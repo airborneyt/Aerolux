@@ -122,7 +122,7 @@ const scale = $derived(computeFitScale(containerW, containerH, bounds.width, bou
                         />
                     </div>
                     <div class="mdp-device-label">
-                        {deviceLabel(device)}
+                        {device.instanceNo}
                         {#if device.rotation}<span class="mdp-rotation-badge">↻{device.rotation}°</span>{/if}
                         {#if device.isPrimary}<span class="mdp-primary-badge">★</span>{/if}
                     </div>
@@ -169,8 +169,8 @@ const scale = $derived(computeFitScale(containerW, containerH, bounds.width, bou
     justify-content: center;
     gap:             4px;
     padding:         2px 4px;
-    background:      rgba(0,0,0,0.45);
-    font-size:       10px;
+    background:      rgba(0,0,0,0.2);
+    font-size:       6px;
     font-family:     'Geist Mono', monospace;
     color:           rgba(255,255,255,0.75);
     pointer-events:  none;

@@ -87,3 +87,20 @@ export function unregisterRenameRequestHandler(fn) { if (renameRequestHandler ==
 export function requestRename(instanceId) {
     renameRequestHandler?.(instanceId);
 }
+
+// curve reveal –––––––––––––––––––––––––––––––––––––––––––––––––––––
+ 
+let curveRevealHandler = null;
+export function registerCurveRevealHandler(fn) { curveRevealHandler = fn; }
+export function unregisterCurveRevealHandler(fn) { if (curveRevealHandler === fn) curveRevealHandler = null; }
+ 
+/**
+    asks whichever SplinePanel is currently mounted to make `paramKey` on
+    `instanceId` the visible, active (editable) curve.
+
+@param {string} instanceId
+@param {string} paramKey
+*/
+export function requestCurveReveal(instanceId, paramKey) {
+    curveRevealHandler?.({ instanceId, paramKey });
+}

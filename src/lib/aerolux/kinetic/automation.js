@@ -16,14 +16,77 @@
 //                             an oscillator's frequency).
 //
 // both are opt-in per param, per node.
+//
+// every breakpoint carries its own `interp` describing how the segment
+// staring at that point behaves on its way to the next one:
+//   'hold':         stays at this point's value until the next point, then
+//                   jumps (a step function)
+//   'linear':       straight ramp (the only behaviour that existed before)
+//   'easeIn':        quadratic, slow start
+//   'easeOut':       quadratic, slow finish
+//   'easeInOut':     cubic smoothstep, slow at both ends
 // ============================================================================
 
-/**
-    linear interpolation across a sorted breakpoint lane.
-    holds the first/last value outside the lane's own tick range, 
-    interpolates linearly between the two points bracketing `t` otherwise.
+export const INTERP_TYPES = ['hold', 'linear', 'easeIn', 'easeOut', 'easeInOut'];
 
-@param {Array<{tick:number, value:number}>} lane  must be sorted by tick ascending
+export const INTERP_LABELS = {
+    hold:      'Hold',
+    linear:    'Linear',
+    easeIn:    'Ease In',
+    easeOut:   'Ease Out',
+    easeInOut: 'Ease In/Out',
+};
+
+/**
+    value at local fraction p (0..1) across a segment from v0 to v1, per the
+    segment's own interp type (carried on its start point).
+
+@param {number} v0
+@param {number} v1
+@param {number} p  0..1
+@param {string} interp  one of INTERP_TYPES
+@returns {number}
+*/
+function easedValueAt(v0, v1, p, interp) {
+    const d = v1 - v0;
+    switch (interp) {
+        case 'hold':      return v0;
+        case 'easeIn':    return v0 + p * p * d;
+        case 'easeOut':   return v0 + (2 * p - p * p) * d;
+        case 'easeInOut': { const e = p * p * (3 - 2 * p); return v0 + e * d; } // classic smoothstep
+        default:          return v0 + p * d; // 'linear'
+    }
+}
+
+/**
+    definite integral, ∫[0,P] value(p) dp, of the same curve easedValueAt
+    evaluates (i.e. the polynomial's own antiderivative)
+    `P` is the local fraction reached so far within this segment (0..1) (may 
+    be less than 1 if `t` falls inside the segment rather than past its end).
+
+@param {number} v0
+@param {number} v1
+@param {number} P  0..1
+@param {string} interp
+@returns {number}
+*/
+function easedIntegral0ToP(v0, v1, P, interp) {
+    const d = v1 - v0;
+    switch (interp) {
+        case 'hold':      return v0 * P;
+        case 'easeIn':    return v0 * P + d * (P ** 3) / 3;
+        case 'easeOut':   return v0 * P + d * (P ** 2 - (P ** 3) / 3);
+        case 'easeInOut': return v0 * P + d * (P ** 3 - (P ** 4) / 2);
+        default:          return v0 * P + d * (P ** 2) / 2; // 'linear'
+    }
+}
+
+/**
+    samples a sorted breakpoint lane at tick `t`, using each segment's own
+    `interp` (carried on its start point; falls back to 'linear' if unset).
+    holds the first/last value outside the lane's own tick range.
+
+@param {Array<{tick:number, value:number, interp?:string}>} lane  must be sorted by tick ascending
 @param {number} t
 @param {number} fallback  used if the lane is empty
 @returns {number}
@@ -36,27 +99,18 @@ export function sampleAutomationLane(lane, t, fallback) {
     for (let i = 0; i < lane.length - 1; i++) {
         if (t >= lane[i].tick && t <= lane[i + 1].tick) {
             const span = lane[i + 1].tick - lane[i].tick;
-            const frac = span === 0 ? 0 : (t - lane[i].tick) / span;
-            return lane[i].value + frac * (lane[i + 1].value - lane[i].value);
+            const p = span === 0 ? 0 : (t - lane[i].tick) / span;
+            return easedValueAt(lane[i].value, lane[i + 1].value, p, lane[i].interp ?? 'linear');
         }
     }
     return lane[lane.length - 1].value; // unreachable given the bounds checks above, kept defensive
 }
 
 /**
-    analytic definite integral of a piecewise-linear automation lane (or a
+    analytic definite integral of a piecewise-eased automation lane (or a
     constant fallback rate, when there's no lane) from 0 to t.
 
-    computed as a running sum of trapezoid areas: before the first
-    breakpoint the lane is held constant at `lane[0].value` (matching
-    `sampleAutomationLane`'s own hold-before-first-point behaviour), each
-    segment between consecutive breakpoints is a linear ramp (trapezoid area
-    = average height * width), and after the last breakpoint the lane is
-    held constant at the final value. Every segment is clipped to `t` if `t`
-    falls inside it, so this is correct for sampling at ANY t, not just
-    exactly on a breakpoint.
-
-@param {Array<{tick:number, value:number}>} lane  sorted by tick ascending
+@param {Array<{tick:number, value:number, interp?:string}>} lane  sorted by tick ascending
 @param {number} t
 @param {number} fallbackRate  constant rate used when there's no lane at all
 @returns {number}
@@ -80,10 +134,8 @@ export function integrateAutomationLane(lane, t, fallbackRate) {
             } else {
                 const prevBp = lane[i - 1];
                 const span = bp.tick - prevBp.tick;
-                const frac = span === 0 ? 0 : (segEnd - prevBp.tick) / span;
-                const valueAtSegEnd = prevBp.value + frac * (bp.value - prevBp.value);
-                // trapezoid area from (prevBp.tick, prevBp.value) to (segEnd, valueAtSegEnd).
-                acc += (prevBp.value + valueAtSegEnd) / 2 * (segEnd - segStart);
+                const P = span === 0 ? 0 : (segEnd - prevBp.tick) / span; // local fraction of this segment reached by `t`
+                acc += span * easedIntegral0ToP(prevBp.value, bp.value, P, prevBp.interp ?? 'linear');
             }
         }
 
@@ -91,7 +143,7 @@ export function integrateAutomationLane(lane, t, fallbackRate) {
         if (bp.tick >= t) return acc;
     }
 
-    // t is beyond the last breakpoint => held constant at the final value.
+    // t is beyond the last breakpoint (held constant at the final value).
     const last = lane[lane.length - 1];
     acc += last.value * (t - last.tick);
     return acc;
@@ -99,13 +151,13 @@ export function integrateAutomationLane(lane, t, fallbackRate) {
 
 /**
     builds the resolveParam(key, t) function passed into every node's
-    createField. falls back to the plain static param value whenever that key
+    createField. dalls back to the plain static param value whenever that key
     has no automation lane (or an empty one), so a param with automation and a
     param without look identical to a node that doesn't care about the
     distinction.
 
 @param {Object} params
-@param {Object<string, Array<{tick,value}>>} [automation]
+@param {Object<string, Array<{tick,value,interp?}>>} [automation]
 @returns {(key:string, t:number) => *}
 */
 export function createParamResolver(params, automation) {
@@ -130,7 +182,7 @@ export function createParamResolver(params, automation) {
     while the rate itself is being animated across that window.
 
 @param {Object} params
-@param {Object<string, Array<{tick,value}>>} [automation]
+@param {Object<string, Array<{tick,value,interp?}>>} [automation]
 @returns {(key:string, t:number) => number}
 */
 export function createParamIntegrator(params, automation) {

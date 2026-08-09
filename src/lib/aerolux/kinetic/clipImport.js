@@ -181,7 +181,7 @@ export function clipToField(clipData, localCells, context = {}, staticParams = {
     const noteByPosKey = new Map();
     for (const [note, pos] of posByNote) noteByPosKey.set(`${pos.x},${pos.y}`, note);
 
-    // group raw (untransposed, untretched) events per note sorted by time
+    // group raw (untransposed, unstretched) events per note sorted by time
     // transpose/timeStretch are applied per-sample below (so they can be re-read live via resolveParam) rather than baked in here
     const eventsByNote = new Map();
     for (const ev of clipData.noteOns) {

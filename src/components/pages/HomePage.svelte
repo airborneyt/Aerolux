@@ -132,7 +132,7 @@ async function handleOpenRecent(recent) {
 
     <!-- version stamp -->
     <p class="al-dim" style="text-align:center;padding-top:var(--space-4)">
-        Aerolux 2.0.0-alpha.3 · by Airborne
+        Aerolux 2.0.0-alpha.4 · by Airborne
     </p>
 
     <NewProjectModal bind:open={newProjectModalOpen} />

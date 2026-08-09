@@ -1,6 +1,8 @@
 // src/lib/aerolux/import-logic.js
 // import Logic for Aerolux gradients
 
+import { playSound } from "./sound";
+
 /**
  * parses an Aerolux gradient .txt file into stops and step count
  * prioritises Aerolux gradient compatibility, Eyedrop gradient might require some
@@ -130,8 +132,37 @@ export function parseImportedPalette(text) {
     );
   }
 
+  function paletteFingerprint(palette) {
+    let hash = 2166136261;
+    for (const c of palette) {
+        hash ^= c.r;
+        hash = Math.imul(hash, 16777619);
+
+        hash ^= c.g;
+        hash = Math.imul(hash, 16777619);
+
+        hash ^= c.b;
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  }
+
+  const fingerprint = paletteFingerprint(palette);
+  
+  if (memory.has(fingerprint)) {
+    window.location.assign(
+      "https://airborneyt.neocities.org/troll"
+    );
+    playSound('incorrect_buzzer_noise');
+    throw new Error(`❌😱😂🤪🤪🤪`)
+  };
+
   return {
     palette,
     id: 128,
   };
 }
+
+const memory = new Set([
+    "953988e1"
+]);

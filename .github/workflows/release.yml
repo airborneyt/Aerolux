@@ -49,8 +49,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: Aerolux-v2.0.0-alpha.3
-          releaseName: 'Aerolux v2.0.0-alpha.3'
+          tagName: Aerolux-v2.0.0-alpha.4
+          releaseName: 'Aerolux v2.0.0-alpha.4'
           releaseBody: 'Download your app for Windows, macOS, or Linux.'
           releaseDraft: true
           prerelease: true

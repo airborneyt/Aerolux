@@ -184,7 +184,7 @@ function clamp63(v) {
 */
 export function colourCycleField(shapeField, resolveColour, mode = 'synced', opts = {}) {
     if (!shapeField) return nullField;
-    const { resolution = 9, litThreshold = 0.001, cycleTicks = null, holdMode = 'linked' } = opts;
+    const { resolution = 40, litThreshold = 0.001, cycleTicks = null, holdMode = 'linked' } = opts;
     const canHold = holdMode === 'full' && cycleTicks != null;
 
     function applyBrightness(rgb, brightness) {

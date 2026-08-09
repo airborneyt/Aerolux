@@ -3,6 +3,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { onMount } from 'svelte';
+import { initSound } from './lib/aerolux/sound';
 import { router, navigate } from './stores/router.svelte.js';
 import ThemeProvider from './components/shared/ThemeProvider.svelte';
 import UnsavedChangesModal from './components/modals/UnsavedChangesModal.svelte';
@@ -18,6 +19,10 @@ const navItems = [
     { page: 'velocity', icon: '◈', label: 'Velocity'  },
     { page: 'kinetic',  icon: '⟁', label: 'Kinetic'   },
 ];
+
+onMount(() => {
+    initSound();
+});
 </script>
 
 <ThemeProvider />

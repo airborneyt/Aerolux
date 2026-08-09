@@ -189,16 +189,16 @@ export const NODE_DEFS = {
         id: 'clipImport', label: 'Clip Import', icon: '▬', color: 'hsl(270,65%,60%)',
         category: 'generator', kind: 'stateless', role: 'generator',
         hasInput: false, isMultiInput: false,
-        hint: 'Replays a loaded .mid file.',
+        hint: 'Plays a loaded .mid file.',
         params: {
             clipData:    { type: 'clipImport', label: 'File', default: null },
             timeStretch: {
                 type: 'float', label: 'Speed', default: 1.0, min: 0.1, max: 4.0, decimals: 2, unit: '×',
-                animatable: true, // position-like (a direct multiplier each sample) — wired through resolveParam
+                animatable: true,
             },
             transpose: {
                 type: 'int', label: 'Transpose', default: 0, min: -64, max: 64,
-                animatable: true, // position-like (a direct note offset each sample) — wired through resolveParam
+                animatable: true,
             },
         },
         createField: createClipImportField,
@@ -208,7 +208,7 @@ export const NODE_DEFS = {
         id: 'sweep', label: 'Sweep', icon: '➡', color: 'hsl(270,65%,60%)',
         category: 'generator', kind: 'stateless', role: 'generator',
         hasInput: false, isMultiInput: false,
-        hint: 'A repeating coloured band travelling across the canvas in any direction.',
+        hint: 'A repeating band travelling across the canvas.',
         params: {
             angleDegrees: {
                 type: 'knob', label: 'Direction', default: 0, min: -180, max: 180,
@@ -222,6 +222,7 @@ export const NODE_DEFS = {
             },
             bandWidth: {
                 type: 'float', label: 'Band width', default: 1, min: 0.1, max: 20, decimals: 2,
+                hint: 'Thickness of the band.',
                 animatable: true,
             },
             period: {
@@ -237,19 +238,19 @@ export const NODE_DEFS = {
         id: 'ripple', label: 'Ripple', icon: '◉', color: 'hsl(270,65%,60%)',
         category: 'generator', kind: 'stateless', role: 'generator',
         hasInput: false, isMultiInput: false,
-        hint: 'Multiple overlapping rings launched at a steady interval, older ones dimmer.',
+        hint: 'Multiple overlapping rings launched at a steady interval.',
         params: {
             originX:        { type: 'float', label: 'Origin X', default: 4.5, min: -50, max: 50, decimals: 2 },
             originY:        { type: 'float', label: 'Origin Y', default: 4.5, min: -50, max: 50, decimals: 2 },
             speed:          {
                 type: 'float', label: 'Speed', default: 0.08, min: 0.005, max: 1, decimals: 3,
                 animatable: true,
-                hint: 'Canvas units per tick each ring expands. Safe to animate.',
+                hint: 'Canvas units per tick each ring expands.',
             },
-            ringWidth:      { type: 'float', label: 'Ring width', default: 1.2, min: 0.1, max: 10, decimals: 2 },
+            ringWidth:      { type: 'float', label: 'Ring width', default: 1.2, min: 0.1, max: 10, decimals: 2, hint: 'Thickness of the ring.' },
             rippleInterval: { type: 'int', label: 'Launch every', default: 96, min: 4, max: 960, unit: 'ticks', hint: 'Ticks between successive ripple launches.' },
             rippleCount:    { type: 'int', label: 'Max overlapping', default: 4, min: 1, max: 10, hint: 'How many recent ripples to consider at once.' },
-            decay:          { type: 'float', label: 'Decay per ripple', default: 0.7, min: 0.1, max: 0.99, decimals: 2 },
+            decay:          { type: 'float', label: 'Decay per ripple', default: 0.7, min: 0.1, max: 0.99, decimals: 2, hint: 'Brightness fall-off per ring.' },
             colour:         { type: 'colourOrGradient', label: 'Colour', default: { mode: 'palette', index: 1 } },
         },
         createField: createRippleField,
@@ -266,10 +267,10 @@ export const NODE_DEFS = {
             angularSpeed: {
                 type: 'float', label: 'Angular speed', default: 1, min: -360, max: 360, decimals: 1, unit: '°/tick',
                 animatable: true,
-                hint: 'Degrees of rotation per tick. Safe to animate.',
+                hint: 'Degrees of rotation per tick.',
             },
             tightness:    { type: 'float', label: 'Tightness', default: 1.2, min: 0.1, max: 5, decimals: 2, hint: 'Radians of winding per canvas unit of radius. Lower = looser spiral.' },
-            armWidth:     { type: 'float', label: 'Arm width', default: 0.6, min: 0.05, max: 3.14, decimals: 2, unit: 'rad' },
+            armWidth:     { type: 'float', label: 'Arm width', default: 0.6, min: 0.05, max: 3.14, decimals: 2, unit: 'rad', hint: 'Thickness of the arm.' },
             clockwise:    { type: 'toggle', label: 'Clockwise', default: true },
             colour:       { type: 'colourOrGradient', label: 'Colour', default: { mode: 'palette', index: 1 } },
         },
@@ -280,12 +281,12 @@ export const NODE_DEFS = {
         id: 'noise', label: 'Noise', icon: '▦', color: 'hsl(270,65%,60%)',
         category: 'generator', kind: 'stateless', role: 'generator',
         hasInput: false, isMultiInput: false,
-        hint: 'Each pad shimmers with a randomly (but repeatably) offset phase of the same wave.',
+        hint: 'Each pad shimmers with a randomly offset phase of the same wave.',
         params: {
             speed:         {
                 type: 'float', label: 'Speed', default: 0.01, min: -0.2, max: 0.2, decimals: 4, unit: 'cycles/tick',
                 animatable: true,
-                hint: 'Cycles per tick. Safe to animate.',
+                hint: 'Cycles per tick.',
             },
             phaseRange:    { type: 'float', label: 'Phase spread', default: 1, min: 0, max: 1, decimals: 2, hint: '0 = every pad in sync, 1 = fully scattered phases.' },
             seed:          { type: 'int', label: 'Seed', default: 0, min: 0, max: 999999, hint: 'Change for a different (but repeatable) shimmer pattern.' },
@@ -299,13 +300,13 @@ export const NODE_DEFS = {
         id: 'waveform', label: 'Waveform', icon: '∿', color: 'hsl(270,65%,60%)',
         category: 'generator', kind: 'stateless', role: 'generator',
         hasInput: false, isMultiInput: false,
-        hint: 'A sine, triangle, or square wave sweeps across the canvas as a brightness modulation.',
+        hint: 'A wave sweeps across the canvas as a brightness modulation.',
         params: {
             angleDegrees: { type: 'knob', label: 'Direction', default: 0, min: -180, max: 180, unit: '°', wrap: true, decimals: 0 },
             speed:        {
                 type: 'float', label: 'Speed', default: 0.05, min: -1, max: 1, decimals: 3,
                 animatable: true,
-                hint: 'Canvas units travelled per tick. Safe to animate.',
+                hint: 'Canvas units travelled per tick.',
             },
             frequency:    { type: 'float', label: 'Frequency', default: 0.3, min: 0.01, max: 5, decimals: 2, unit: 'cycles/unit' },
             waveType:     {
@@ -328,8 +329,8 @@ export const NODE_DEFS = {
         hasInput: false, isMultiInput: false,
         hint: 'All pads flash in sync (or staggered by row/column) and decay.',
         params: {
-            interval:      { type: 'int', label: 'Flash every', default: 96, min: 4, max: 960, unit: 'ticks' },
-            decayTicks:    { type: 'int', label: 'Decay over', default: 30, min: 1, max: 480, unit: 'ticks' },
+            interval:      { type: 'int', label: 'Flash every', default: 96, min: 4, max: 960, unit: 'ticks', hint: 'Ticks between successive flashes.' },
+            decayTicks:    { type: 'int', label: 'Decay over', default: 30, min: 1, max: 480, unit: 'ticks', hint: 'Brightness fall-off speed.' },
             stagger:       {
                 type: 'select', label: 'Stagger', default: 'none',
                 options: [
@@ -338,7 +339,7 @@ export const NODE_DEFS = {
                     { value: 'column', label: 'By column' },
                 ],
             },
-            staggerAmount: { type: 'int', label: 'Stagger amount', default: 4, min: 0, max: 96, unit: 'ticks/index' },
+            staggerAmount: { type: 'int', label: 'Stagger amount', default: 4, min: 0, max: 96, unit: 'ticks/index', hint: 'How many rows/column to stagger each flash by.' },
             colour:        { type: 'colourOrGradient', label: 'Colour', default: { mode: 'palette', index: 1 } },
         },
         createField: createFlashField,
@@ -364,15 +365,9 @@ export const NODE_DEFS = {
     },
 
     shift: {
-        id: 'shift',
-        label: 'Shift',
-        icon: '↔',
-        color: 'hsl(210,70%,55%)',
-        category: 'transform',
-        kind: 'stateless',
-        role: 'transform',
-        hasInput: true,
-        isMultiInput: false,
+        id: 'shift', label: 'Shift', icon: '↔', color: 'hsl(210,70%,55%)',
+        category: 'transform', kind: 'stateless', role: 'transform',
+        hasInput: true, isMultiInput: false,
         hint: 'Shifts the input field horizontally and/or vertically by the given amounts.',
         params: {
             shiftX: {
@@ -408,7 +403,7 @@ export const NODE_DEFS = {
         id: 'hueShift', label: 'Hue Shift', icon: '◐', color: 'hsl(38,80%,58%)',
         category: 'colour', kind: 'stateless', role: 'colour',
         hasInput: true, isMultiInput: false,
-        hint: 'Rotates the hue of whatever colour the input produces.',
+        hint: 'Rotates the hue of the input colour.',
         params: {
             degrees: {
                 type: 'knob', label: 'Hue', default: 0, min: -180, max: 180,
@@ -438,7 +433,7 @@ export const NODE_DEFS = {
         id: 'satMult', label: 'Sat Multiplier', icon: '✨', color: 'hsl(38,80%,58%)',
         category: 'colour', kind: 'stateless', role: 'colour',
         hasInput: true, isMultiInput: false,
-        hint: 'Multiply the saturation of the input colour by the specified percentage.',
+        hint: 'Multiplies the saturation of the input colour by the specified percentage.',
         params: {
             multiplier: {
                 type: 'knob', label: 'Saturation Multiplier', default: 100, min: 0, max: 200,
@@ -454,7 +449,7 @@ export const NODE_DEFS = {
         id: 'contrast', label: 'Contrast', icon: '✨', color: 'hsl(38,80%,58%)',
         category: 'colour', kind: 'stateless', role: 'colour',
         hasInput: true, isMultiInput: false,
-        hint: 'Multiply the contrast of the input colour by the specified percentage.',
+        hint: 'Multiplies the contrast of the input colour by the specified percentage.',
         params: {
             multiplier: {
                 type: 'knob', label: 'Contrast Multiplier', default: 100, min: 0, max: 200,
@@ -473,7 +468,7 @@ export const NODE_DEFS = {
         role: 'colour',
         hasInput: true,
         isMultiInput: false,
-        hint: 'Inverts the colour of the input field based on an intensity percentage.',
+        hint: 'Inverts the input colour based on an intensity percentage.',
         params: {
             intensity: {
                 type: 'knob', label: 'Invert Intensity', default: 0, min: 0, max: 100,
@@ -507,7 +502,7 @@ export const NODE_DEFS = {
         id: 'posterise', label: 'Posterise', icon: '🔳', color: 'hsl(38,80%,58%)',
         category: 'colour', kind: 'stateless', role: 'colour',
         hasInput: true, isMultiInput: false,
-        hint: 'Reduces the number of distinct colour tones in the input by quantising the colour space.',
+        hint: 'Reduces the number of distinct colour tones in the input.',
         params: {
             level: {
                 type: 'knob', label: 'Level (%)', default: 100, min: 1, max: 100,
@@ -541,7 +536,7 @@ export const NODE_DEFS = {
         id: 'timeRemap', label: 'Time Remap', icon: '⧖', color: 'hsl(190,65%,50%)',
         category: 'temporal', kind: 'stateless', role: 'temporal',
         hasInput: true, isMultiInput: false,
-        hint: 'A speed curve ("pinch"). Warps time within each repeating window so motion speeds up and slows down instead of moving at a constant rate.',
+        hint: 'A speed curve ("pinch").',
         params: {
             period:      { type: 'int', label: 'Window length', default: 192, min: 4, max: 1920, unit: 'ticks' },
             curveType:   {
@@ -578,7 +573,7 @@ export const NODE_DEFS = {
         id: 'loop', label: 'Loop', icon: '↺', color: 'hsl(190,65%,50%)',
         category: 'temporal', kind: 'stateless', role: 'temporal',
         hasInput: true, isMultiInput: false,
-        hint: 'Repeats a finite-duration input indefinitely, instead of running once and going dark.',
+        hint: 'Repeats a finite-duration input indefinitely.',
         params: {
             loopLength: { type: 'int', label: 'Loop length', default: 192, min: 4, max: 1920, unit: 'ticks' },
             startTick:  { type: 'int', label: 'Start tick', default: 0, min: 0, max: 1920 },
@@ -590,7 +585,7 @@ export const NODE_DEFS = {
         id: 'delay', label: 'Delay', icon: '⏱', color: 'hsl(190,65%,50%)',
         category: 'temporal', kind: 'stateless', role: 'temporal',
         hasInput: true, isMultiInput: false,
-        hint: 'Offsets the input so its effect starts later than the rest of the graph. Held frozen before the delay elapses.',
+        hint: 'Offsets the input so its effect starts later.',
         params: {
             delayTicks: {
                 type: 'int', label: 'Delay', default: 48, min: 0, max: 1920, unit: 'ticks',
@@ -604,7 +599,7 @@ export const NODE_DEFS = {
         id: 'clockScale', label: 'Clock Scale', icon: '⏲', color: 'hsl(190,65%,50%)',
         category: 'temporal', kind: 'stateless', role: 'temporal',
         hasInput: true, isMultiInput: false,
-        hint: 'Speeds up, slows down, or reverses time reaching the input (unified clock divider/multiplier).',
+        hint: 'Speeds up, slows down, or reverses time reaching the input.',
         params: {
             factor: {
                 type: 'float', label: 'Factor', default: 1, min: -4, max: 4, decimals: 2,
@@ -740,7 +735,7 @@ export const NODE_DEFS = {
         id: 'trail', label: 'Trail', icon: '☄', color: 'hsl(150,55%,50%)',
         category: 'simulation', kind: 'stateful', role: 'simulation',
         hasInput: true, isMultiInput: false,
-        hint: 'Remembers recently-lit pixels and fades them out over time. Single-device grid only for now (see the node-authoring guide).',
+        hint: 'Remembers recently-lit pixels and fades them out over time.',
         params: {
             decay:      { type: 'float', label: 'Decay per step', default: 0.85, min: 0.5, max: 0.99, decimals: 2 },
             resolution: { type: 'int',   label: 'Grid resolution', default: 9, min: 4, max: 20 },
@@ -752,7 +747,7 @@ export const NODE_DEFS = {
         id: 'gameOfLife', label: 'Game of Life', icon: '⧈', color: 'hsl(150,55%,50%)',
         category: 'simulation', kind: 'stateful', role: 'simulation',
         hasInput: true, isMultiInput: false,
-        hint: 'Conway\'s Game of Life. Leave the input unwired for a self-contained random-seeded board, or wire something in to spawn new live cells wherever it\'s lit. Single-device grid only for now (see the node-authoring guide).',
+        hint: 'Conway\'s Game of Life.',
         params: {
             resolution:     { type: 'int',   label: 'Grid resolution', default: 9,    min: 4, max: 20 },
             density:        { type: 'float', label: 'Seed density',    default: 0.35, min: 0, max: 1, decimals: 2, hint: 'Initial probability a cell starts alive.' },
@@ -772,7 +767,7 @@ export const NODE_DEFS = {
         id: 'diffusion', label: 'Diffusion', icon: '◈', color: 'hsl(150,55%,50%)',
         category: 'simulation', kind: 'stateful', role: 'simulation',
         hasInput: true, isMultiInput: false,
-        hint: 'Energy spreads to neighbouring cells and fades over time. Wire something in to inject energy wherever it\'s lit — an unwired input just decays to nothing.',
+        hint: 'Energy spreads to neighbouring cells and fades over time.',
         params: {
             resolution:     { type: 'int',   label: 'Grid resolution',  default: 9,    min: 4, max: 20 },
             diffusionRate:  { type: 'float', label: 'Spread rate',      default: 0.15, min: 0, max: 0.24, decimals: 2, hint: 'Fraction of a cell\'s energy spread to each neighbour per step. Keep below 0.25 or the simulation can overshoot.' },
