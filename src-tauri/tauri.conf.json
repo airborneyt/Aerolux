@@ -41,12 +41,12 @@
       "dmg": {
         "background": "assets/downloadbg.png",
         "appPosition": {
-          "x": 120,
-          "y": 220
+          "x": 51,
+          "y": 156
         },
         "applicationFolderPosition": {
-          "x": 360,
-          "y": 220
+          "x": 381,
+          "y": 156
         }
       }
     }
