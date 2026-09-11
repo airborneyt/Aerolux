@@ -26,5 +26,3 @@ dist-ssr
 
 # personal files
 m4l
-src/lib/aerolux/bridge
-src-tauri/src/bridge_server.rs
