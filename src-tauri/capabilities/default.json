@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "core:window:allow-set-title",
+    "core:menu:default",
     "store:allow-get",
     "store:allow-set",
     "store:allow-save",
@@ -27,6 +28,13 @@
     "notification:allow-notify",
     "notification:default",
     "process:default",
-    "process:allow-exit"
+    "process:allow-exit",
+    "drpc:default",
+    "drpc:allow-is-running",
+    "drpc:allow-clear-activity",
+    "opener:default",
+    "opener:allow-open-url",
+    "opener:allow-default-urls",
+    "updater:default"
   ]
 }

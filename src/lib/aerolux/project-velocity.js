@@ -77,9 +77,16 @@ export function deserializeVelocityState(state) {
     ? s.stops
     : fallback.stops;
 
-  const palette = Array.isArray(s.palette)
-    ? s.palette.map((c, i) => ({ i, r: c[0], g: c[1], b: c[2] }))
-    : palette.map((c, i) => ({ i, r: c[0], g: c[1], b: c[2] }));
+  const paletteData = Array.isArray(s.palette)
+    ? s.palette
+    : DEFAULT_PALETTE;
+
+  const palette = paletteData.map((c, i) => ({
+    i,
+    r: c[0],
+    g: c[1],
+    b: c[2]
+  }));
 
   return {
     stops,

@@ -78,7 +78,7 @@ function wirePath(from, to) {
 }
 
 .kpc-node {
-    fill:         rgba(18,22,40,0.92);
+    fill:         var(--color-surface-3);
     stroke:       color-mix(in srgb, var(--nc) 60%, transparent);
     stroke-width: 1;
 }
@@ -86,7 +86,7 @@ function wirePath(from, to) {
 .kpc-node-label {
     font-size:   7px;
     font-weight: 600;
-    fill:        rgba(255,255,255,0.75);
+    fill:        var(--color-text);
     font-family: inherit;
 }
 </style>

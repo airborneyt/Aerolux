@@ -28,6 +28,12 @@ export function applyTheme() {
         '--accent-h',
         String(getResolvedAccentH())
     );
+    applyTransparency();
+}
+
+export function applyTransparency() {
+    if (typeof document === 'undefined') return;
+    document.body.classList.toggle('no-transparency', settings.theme.transparency === false);
 }
 
 export async function loadTheme() {

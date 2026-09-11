@@ -13,6 +13,7 @@
 // ============================================================================
 
 const DEFAULT_SIM_RATE_HZ = 60;
+const MAX_CATCHUP_STEPS = 16;
 
 /**
     fixed-step accumulator: same pattern as a game-loop physics step. feed it
@@ -40,11 +41,13 @@ export function createSimClock(rateHz = DEFAULT_SIM_RATE_HZ) {
         tick(elapsedSeconds, statefulFields, context) {
             accumulator += elapsedSeconds;
             let steps = 0;
-            while (accumulator >= dt) {
-                for (const field of statefulFields) field.advance(dt, context);
+            while (accumulator >= dt && steps < MAX_CATCHUP_STEPS) {
+                const stepContext = { ...context, _physicsStep: (context._physicsStep ?? 0) + steps };
+                for (const field of statefulFields) field.advance(dt, stepContext);
                 accumulator -= dt;
                 steps++;
             }
+            if (accumulator >= dt) accumulator = 0;
             return steps;
         },
 

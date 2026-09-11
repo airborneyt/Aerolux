@@ -66,14 +66,18 @@ pub enum ServerStatus {
 }
 
 pub struct LlamaServerState {
-    child:  Option<Child>,
-    port:   Option<u16>,
+    child: Option<Child>,
+    port: Option<u16>,
     status: ServerStatus,
 }
 
 impl Default for LlamaServerState {
     fn default() -> Self {
-        Self { child: None, port: None, status: ServerStatus::NotStarted }
+        Self {
+            child: None,
+            port: None,
+            status: ServerStatus::NotStarted,
+        }
     }
 }
 
@@ -112,7 +116,11 @@ fn pick_free_port() -> Result<u16, String> {
 }
 
 fn log_dir<R: Runtime>(app: &AppHandle<R>) -> Result<std::path::PathBuf, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("logs");
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("logs");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
 }
@@ -216,7 +224,10 @@ where
     guard.status = ServerStatus::Failed;
     drop(guard);
     eprintln!("[llama-server] FAILED: {reason}");
-    let _ = app.emit("llama:server-failed", serde_json::json!({ "reason": reason }));
+    let _ = app.emit(
+        "llama:server-failed",
+        serde_json::json!({ "reason": reason }),
+    );
 }
 
 // ── commands ─────────────────────────────────────────────────────────
@@ -257,20 +268,25 @@ pub fn llama_start_server<R: Runtime>(
 
     let mut cmd = Command::new(&binary_path);
     cmd.current_dir(binary_dir)
-        .arg("--port").arg(port.to_string())
-        .arg("--host").arg("127.0.0.1")
-        .arg("-m").arg(&model_path)
+        .arg("--port")
+        .arg(port.to_string())
+        .arg("--host")
+        .arg("127.0.0.1")
+        .arg("-m")
+        .arg(&model_path)
         // Thinking is off by default — 'auto' detects thinking capability
         // from Gemma 4's chat template metadata and enables it, which
         // consumes the entire token budget on reasoning before producing
         // any visible output for short prompts. User can toggle this on
         // explicitly via settings (requires server restart since this is
         // a startup-time flag, not a per-request one).
-        .arg("--reasoning").arg(if enable_thinking { "on" } else { "off" })
+        .arg("--reasoning")
+        .arg(if enable_thinking { "on" } else { "off" })
         // Hard cap on reasoning tokens when thinking is enabled — prevents
         // runaway thinking from consuming the entire context on a simple
         // prompt. Ignored (set to 0) when thinking is off.
-        .arg("--reasoning-budget").arg(if enable_thinking {
+        .arg("--reasoning-budget")
+        .arg(if enable_thinking {
             reasoning_budget.unwrap_or(2048).to_string()
         } else {
             "0".to_string()
@@ -285,7 +301,9 @@ pub fn llama_start_server<R: Runtime>(
         cmd.arg("--ctx-size").arg(ctx.to_string());
     }
 
-    let mut child = cmd.spawn().map_err(|e| format!("Failed to start llama-server: {e}"))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to start llama-server: {e}"))?;
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -299,7 +317,7 @@ pub fn llama_start_server<R: Runtime>(
     // path: llama_stop_server below re-derives the child via the OS
     // process group is NOT done here for simplicity — instead we keep
     // the Child in state as the canonical handle, and watch_crash
-    // receives a SEPARATE duplicate via try_clone-equivalent... 
+    // receives a SEPARATE duplicate via try_clone-equivalent...
     //
     // std::process::Child does not support cloning. Simplest correct
     // approach: state owns the Child (for llama_stop_server to kill
@@ -309,8 +327,8 @@ pub fn llama_start_server<R: Runtime>(
 
     {
         let mut guard = state.lock().unwrap();
-        guard.child  = Some(child);
-        guard.port   = Some(port);
+        guard.child = Some(child);
+        guard.port = Some(port);
         guard.status = ServerStatus::Starting;
     }
 
@@ -356,7 +374,7 @@ where
 
             if let Some(exit_status) = exited {
                 guard.status = ServerStatus::Failed;
-                guard.child  = None;
+                guard.child = None;
                 let code = exit_status.code();
                 drop(guard);
                 eprintln!("[llama-server] process exited unexpectedly, code={code:?}");

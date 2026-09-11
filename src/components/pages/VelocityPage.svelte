@@ -1,5 +1,6 @@
 <script>
 import { onMount, onDestroy } from 'svelte';
+import { setDiscordContext } from '../../lib/aerolux/discord.js';
 import { editor } from '../../stores/velocity.svelte.js';
 import { undo, redo, undoState } from '../../stores/velocityActions.svelte.js';
 import { showToast } from '../../lib/aerolux/toast.js';
@@ -22,6 +23,7 @@ import ImportModal     from '../modals/ImportModal.svelte';
 
 import { gradResult } from '../../stores/velocity.svelte.js';
 import { registerGradient } from '../../stores/kinetic.svelte.js';
+import { setActiveEditor } from '../../stores/projects.svelte.js';
 
 // $state(null). reactive so keyboard shortcuts see the API after mount
 let palettePanel = $state(null);
@@ -45,6 +47,8 @@ $effect(() => {
 });
 
 onMount(() => {
+    setDiscordContext('velocity');
+    setActiveEditor('velocity');
     // keyboard shortcuts, uses $state palettePanel so closure
     // sees the real API after PalettePanel.svelte sets it via bind:api
     initKeyboardShortcuts({
@@ -62,47 +66,55 @@ onMount(() => {
 onDestroy(stop);
 </script>
 
-    <header class="al-header">
-        <div class="al-header-brand">
-            <span class="al-logo-text">Velo<span class="al-logo-accent">city</span></span>
-            <span class="al-logo-sub" style="font-size:8px">Gradient editor</span>
-        </div>
-        <div class="al-header-actions">
-            <button class="al-btn" onclick={() => presetOpen = true}>Presets</button>
-            <button class="al-btn" onclick={() => importOpen = true}>↑ Import</button>
-            <button class="al-btn" onclick={() => helpOpen = true}>? Help</button>
-        </div>
-    </header>
+<header class="al-header">
+    <div class="al-header-brand">
+        <span class="al-logo-text">Velo<span class="al-logo-accent">city</span></span>
+        <span class="al-logo-sub" style="font-size:8px">Gradient editor</span>
+    </div>
+    <div class="al-header-actions">
+        <button class="al-btn" onclick={() => presetOpen = true}>Presets</button>
+        <button class="al-btn" onclick={() => importOpen = true}>↑ Import</button>
+        <button class="al-btn" onclick={() => helpOpen = true}>? Help</button>
+    </div>
+</header>
 
-    <div class="al-main">
-        <div class="al-left">
-            <PalettePanel bind:api={palettePanel} />
-            <div class="al-card" style="grid-column:1/-1">
-                <AutomationPanel />
-            </div>
-        </div>
-        <div class="al-right">
-            <div class="al-card">
-                <GradientEditor onUndo={undo} onRedo={redo} />
-                <HueShiftRow />
-            </div>
-            <div class="al-settings-row">
-                <StepsAndCurve />
-                <AlgorithmPanel />
-                <TintPanel />
-            </div>
-            <OutputCard onOpenPresets={openPresets} {saveGradient} />
+<div class="al-main">
+    <div class="al-left">
+        <PalettePanel bind:api={palettePanel} />
+        <div class="al-card" style="grid-column:1/-1">
+            <AutomationPanel />
         </div>
     </div>
-
-    <div class="al-bottom-grid">
-        <MidiPanel />
+    <div class="al-right">
         <div class="al-card">
-            <AirbotPanel />
+            <GradientEditor onUndo={undo} onRedo={redo} />
+            <HueShiftRow />
         </div>
-        <HistoryPanel />
+        <div class="al-settings-row">
+            <StepsAndCurve />
+            <AlgorithmPanel />
+            <TintPanel />
+        </div>
+        <OutputCard onOpenPresets={openPresets} {saveGradient} />
     </div>
+</div>
 
-    <HelpModal   bind:open={helpOpen} />
-    <ImportModal bind:open={importOpen} />
-    <PresetOverlay bind:open={presetOpen} bind:saveGradient initialName={presetInitialName} />
+<div class="al-bottom-grid">
+    <MidiPanel />
+    <div class="al-card">
+        <AirbotPanel />
+    </div>
+    <HistoryPanel />
+</div>
+
+<HelpModal   bind:open={helpOpen} />
+<ImportModal bind:open={importOpen} />
+<PresetOverlay bind:open={presetOpen} bind:saveGradient initialName={presetInitialName} />
+
+<style>
+
+* {
+    user-select: none; -webkit-user-select: none;
+}
+
+</style>

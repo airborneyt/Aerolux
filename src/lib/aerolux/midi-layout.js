@@ -31,6 +31,7 @@ export const ZONE = {
   BOTTOM: 'bottom',
   CORNER: 'corner', // non-addressable virtual placeholder (TL/BL/BR)
   LOGO:   'logo',
+  SETUP:  'setup',
   MODE:   'mode',
 };
 
@@ -54,10 +55,14 @@ const DRUM_RACK_GRID_NOTES = [
 
 const EXPORT_NOTES = {
   logoMode: 27,
+  setup: 26,
   top:    [28, 29, 30, 31, 32, 33, 34, 35],   // left → right
   right:  [107, 106, 105, 104, 103, 102, 101, 100], // top → bottom
   left:   [115, 114, 113, 112, 111, 110, 109, 108], // top → bottom
-  bottom: [116, 117, 118, 119, 120, 121, 122, 123], // left → right
+  bottom: [
+            [116, 117, 118, 119, 120, 121, 122, 123],
+            [12, 13, 14, 15, 16, 17, 18, 19],
+          ], // left → right
 };
 
 // live SysEx pad numbers –––––––––––––––––––––––––––––––––––––––––––
@@ -70,10 +75,16 @@ function mainSysexPad(x, y) {
 
 export const EDGE_SYSEX = {
   logoMode: 99,
+  setup: 90,
   top:    [91, 92, 93, 94, 95, 96, 97, 98],  // x=1..8 → left → right
   right:  [19, 29, 39, 49, 59, 69, 79, 89],  // y=1..8 → bottom → top
   left:   [10, 20, 30, 40, 50, 60, 70, 80],  // y=1..8 → bottom → top
-  bottom: [1, 2, 3, 4, 5, 6, 7, 8],          // x=1..8 → left → right
+  bottom: [
+            [1, 2, 3, 4, 5, 6, 7, 8],
+            [101, 102, 103, 104, 105, 106, 107, 108], 
+          ], // x=1..8 → left → right
+  bl: 0o0,
+  br: 9,
 };
 
 // MODE's own dedicated position (see the module doc above) and its
@@ -139,29 +150,38 @@ export function buildLaunchpadGrid() {
     });
   }
 
-  // bottom row (y = 0)
-  for (let x = 1; x <= 8; x++) {
-    cells.push({
-      x, y: 0,
-      zone: ZONE.BOTTOM,
-      sysexPad:   EDGE_SYSEX.bottom[x - 1],
-      exportNote: EXPORT_NOTES.bottom[x - 1],
-    });
+  // bottom rows
+  for (let bottomRow = 0; bottomRow < 2; bottomRow++) {
+    for (let x = 1; x <= 8; x++) {
+      cells.push({
+        x,
+        y: bottomRow === 0 ? 0 : -1,
+        zone: ZONE.BOTTOM,
+        sysexPad: EDGE_SYSEX.bottom[bottomRow][x - 1],
+        exportNote: EXPORT_NOTES.bottom[bottomRow][x - 1],
+      });
+    }
   }
 
-  // corners: TL/BL/BR are virtual placeholders. no physical light exists
+  // corners: BL/BR are virtual placeholders. no physical light exists
   // at any of these three positions on real hardware. they exist purely so
   // a renderer/consumer can treat the addressable area as a clean 10x10
   // square without special-casing "there's nothing there".
-  cells.push({ x: 0, y: 9, zone: ZONE.CORNER, sysexPad: null, exportNote: null }); // TL
-  cells.push({ x: 0, y: 0, zone: ZONE.CORNER, sysexPad: null, exportNote: null }); // BL
-  cells.push({ x: 9, y: 0, zone: ZONE.CORNER, sysexPad: null, exportNote: null }); // BR
+  cells.push({ x: 0, y: 0, zone: ZONE.CORNER, sysexPad: EDGE_SYSEX.bl, exportNote: null }); // BL
+  cells.push({ x: 9, y: 0, zone: ZONE.CORNER, sysexPad: EDGE_SYSEX.br, exportNote: null }); // BR
 
   // top-right corner: the real logo light.
   cells.push({
     x: 9, y: 9, zone: ZONE.LOGO,
     sysexPad: EDGE_SYSEX.logoMode, exportNote: EXPORT_NOTES.logoMode,
     realSysexPad: EDGE_SYSEX.logoMode,
+  });
+
+  // top-left corner: setup button
+  cells.push({ 
+    x: 0, y: 9, zone: ZONE.SETUP, 
+    sysexPad: EDGE_SYSEX.setup, exportNote: EXPORT_NOTES.setup,
+    realSysexPad: EDGE_SYSEX.setup
   });
 
   // mode light: its own distinct position (see module doc). sample-able
@@ -335,7 +355,10 @@ export function cellToSysex(cell) {
   if (zone === ZONE.TOP) return EDGE_SYSEX.top[col];
   if (zone === ZONE.RIGHT) return EDGE_SYSEX.right[row];
   if (zone === ZONE.LEFT) return EDGE_SYSEX.left[row];
-  if (zone === ZONE.BOTTOM) return EDGE_SYSEX.bottom[col];
+  if (zone === ZONE.BOTTOM) {
+    const bottomRow = row === -2 ? 1 : 0;
+    return EDGE_SYSEX.bottom[bottomRow][col];
+  }
   if (zone === ZONE.LOGO || zone === ZONE.MODE) return EDGE_SYSEX.logoMode;
 
   return null; // corner placeholders: no real address

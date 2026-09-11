@@ -114,3 +114,31 @@ export function createStepAccumulator(stepsPerSecond) {
         reset() { acc = 0; },
     };
 }
+
+/**
+    fixed-grid particle rasteriser + decay buffer for every particle-based simulation node.
+    this controls deposition, decay, and read-back. the nodes only handle how the particles move
+
+@param {number} resolution
+@param {number} decay
+*/
+export function createParticleBuffer(resolution, decay) {
+    const size = resolution + 1;
+    let grid = new Float64Array(size * size);
+    const idx = (gx, gy) => gy * size + gx;
+    return {
+        decayStep() { for (let i = 0; i < grid.length; i++) grid[i] *= decay; },
+        deposit(x, y, amount = 1) {
+            const gx = Math.round(x), gy = Math.round(y);
+            if (gx < 0 || gx >= size || gy < 0 || gy >= size) return;
+            const key = idx(gx, gy);
+            grid[key] = Math.min(1, grid[key] + amount);
+        },
+        read(x, y) {
+            const gx = Math.round(x), gy = Math.round(y);
+            if (gx < 0 || gx >= size || gy < 0 || gy >= size) return null;
+            const v = grid[idx(gx, gy)];
+            return v > 0.003 ? Math.min(1, v) : null;
+        },
+    };
+}

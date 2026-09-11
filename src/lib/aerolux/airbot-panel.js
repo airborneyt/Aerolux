@@ -93,7 +93,7 @@ export function initAirbotPanel({
     document.getElementById('ai-load-btn').disabled = true;
     document.getElementById('ai-progress-wrap').style.display = 'block';
     setAiStatus('busy', 'Loading model…');
-    showToast('Loading Qwen 3 8B. First load will take some time.', 'info', 8000);
+    showToast('Loading Gemma 4 E2B. First load will take some time.', 'info', 8000);
     try {
       const webllm = await import('https://esm.run/@mlc-ai/web-llm');
       aiEngine = await webllm.CreateMLCEngine(AI_MODEL, {
@@ -106,7 +106,7 @@ export function initAirbotPanel({
         }
       });
       document.getElementById('ai-progress-wrap').style.display = 'none';
-      setAiStatus('ok', 'Qwen 3 8B ready');
+      setAiStatus('ok', 'Gemma 4 E2B ready');
       setAiControlsEnabled(true);
       document.getElementById('ai-load-btn').textContent = 'Model loaded';
       document.getElementById('ai-load-btn').disabled    = true;
@@ -284,7 +284,7 @@ export function initAirbotPanel({
         const stream = await aiEngine.chat.completions.create({
           messages: [{ role: 'system', content: AI_SYSTEM_PROMPT }, { role: 'user', content: userPrompt }],
           temperature: Math.min(1.0, 0.4 + i * 0.05),
-          max_tokens:  600,
+          max_tokens:  1000,
           stream:      true,
         });
 
@@ -345,7 +345,7 @@ export function initAirbotPanel({
         if (!['rgb','lab','hsl','vivid','stepped'].includes(data.algorithm)) data.algorithm = 'rgb';
         if (!VALID_EASINGS.includes(data.easing)) data.easing = 'linear';
 
-        const gradLen  = lengthOverride ? parseInt(lengthOverride) : Math.max(2, Math.min(16, parseInt(data.length) || 16));
+        const gradLen  = lengthOverride ? parseInt(lengthOverride) : Math.max(2, Math.min(32, parseInt(data.length) || 32));
         const aiStops  = data.stops.map((s, idx) => ({
           id: idx, pos: s.pos, ci: colorToNearestPalette(s.r, s.g, s.b, palette),
         }));
@@ -443,7 +443,7 @@ export function initAirbotPanel({
           if (['shortest','longest'].includes(act.value)) newHslDir = act.value;
         }
         else if (act.action === 'setSteps') {
-          newSteps = Math.max(2, Math.min(16, Math.round(act.value) || 16));
+          newSteps = Math.max(2, Math.min(32, Math.round(act.value) || 32));
         }
         else if (act.action === 'setTint') {
     const idx = Math.max(0, Math.min(palette.length - 1, Math.round(act.paletteIdx) || 0));
@@ -594,11 +594,11 @@ export function initAirbotPanel({
     const agentSys = `/nothink
 you are an agentic gradient editor. output ONLY: {"actions":[...],"explanation":"string"}
 actions available:
-  - {"action":"setStops","stops":[{"pos":0.0,"paletteIdx":0},...]}  2–16 stops, pos 0.0–1.0, must include 0.0 and 1.0
+  - {"action":"setStops","stops":[{"pos":0.0,"paletteIdx":0},...]}  2–32 stops, pos 0.0–1.0, must include 0.0 and 1.0
   - {"action":"setAlgorithm","value":"rgb|lab|hsl|vivid|stepped"}
   - {"action":"setHslDir","value":"shortest|longest"}
   - {"action":"setEasing","value":"linear|easeIn|easeOut|sCurve|cubicIn|cubicOut|sineIn|sineOut|sineBoth|expoIn|expoOut|bounce|elastic"}
-  - {"action":"setSteps","value":2-16}
+  - {"action":"setSteps","value":2-32}
   - {"action":"setTint","paletteIdx":0,"strength":50}
   - {"action":"clearTint"}
 palette: ${palette.length} entries (index 0–${palette.length-1}).
@@ -612,9 +612,9 @@ current state: ${JSON.stringify(currentState)}`;
     const batchSys = `/nothink
 you are an agentic gradient editor. Generate ${batchN} distinct variations.
 output ONLY: {"variations":[{"name":"string","actions":[...]}],"explanation":"string"}
-same action types as: setStops (2–16 stops, pos 0–1, paletteIdx 0–${palette.length-1}),
+same action types as: setStops (2–32 stops, pos 0–1, paletteIdx 0–${palette.length-1}),
 setAlgorithm (rgb|lab|hsl|vivid|stepped), setHslDir (shortest|longest),
-setEasing (linear|easeIn|easeOut|sCurve|cubicIn|cubicOut|sineIn|sineOut|sineBoth|expoIn|expoOut|bounce|elastic), setSteps (2–16),
+setEasing (linear|easeIn|easeOut|sCurve|cubicIn|cubicOut|sineIn|sineOut|sineBoth|expoIn|expoOut|bounce|elastic), setSteps (2–32),
 setTint (paletteIdx, strength 0–100), clearTint.
 palette information:
   - index 0 invalid. 1–7 white→black. 8–67 deep colours in groups of 4. 68+ pastels.
@@ -630,7 +630,7 @@ current state: ${JSON.stringify(currentState)}`;
           { role: 'user',   content: prompt },
         ],
         temperature: 0.5,
-        max_tokens:  600,
+        max_tokens:  1000,
         stream:      true,
       });
 

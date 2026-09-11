@@ -20,6 +20,7 @@ import { editor } from '../../stores/velocity.svelte.js';
 import { NODE_DEFS } from '../../lib/aerolux/kinetic/nodeRegistry.js';
 import { reachableInstanceIds } from '../../lib/aerolux/kinetic/compileGraph.js';
 import { showToast } from '../../lib/aerolux/toast.js';
+import { hapticSnap, hapticTick } from '../../lib/aerolux/haptics.js';
 import { registerDropHandler, unregisterDropHandler, requestRename } from '../../stores/kineticUiSignals.svelte.js';
 import GraphBreadcrumb from './GraphBreadcrumb.svelte';
 
@@ -28,6 +29,8 @@ const NODE_H = 56;
 const DEFAULT_PAN = { x: 60, y: 40 };
 const DEFAULT_ZOOM = 1;
 const MIN_BOX_SELECT_SIZE = 2; // to ignore an accidental zero-size Shift+click
+const GRID_SIZE = 20;
+const WIRE_SNAP_DISTANCE = 24;
 
 let { boundMultiSelectCount = $bindable(0) } = $props();
 
@@ -79,6 +82,10 @@ function applyBoxSelect(box) {
 
 // node dragging ––––––––––––––––––––––––––––––––––––––––––––––––––––
 let nodeDrag = null;
+
+function snapToGrid(value) {
+    return Math.round(value / GRID_SIZE) * GRID_SIZE;
+}
 
 // multi-select –––––––––––––––––––––––––––––––––––––––––––––––––––––
 let multiSelected = $state(new Set());
@@ -149,7 +156,8 @@ const searchResults = $derived(
         ? nodeDefList
         : nodeDefList.filter(d =>
             d.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            d.category.toLowerCase().includes(searchQuery.toLowerCase())
+            d.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            d.subcategory?.toLowerCase().includes(searchQuery.toLowerCase())
           )
 );
 
@@ -214,6 +222,37 @@ function wirePath(x1, y1, x2, y2) {
     return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
 }
 
+function findNearestInputPort(graphX, graphY, fromInstanceId) {
+    let nearest = null;
+    let nearestDistance = Infinity;
+    for (const instance of currentInstances()) {
+        // cannot connect a node to itself
+        if (instance.instanceId === fromInstanceId) continue;
+        const def = NODE_DEFS[instance.nodeId];
+        const possiblePorts = [];
+        if (hasInputFor(instance, def)) { possiblePorts.push('input'); }
+        if (isMultiInputFor(instance, def)) { possiblePorts.push('inputB'); }
+        for (const port of possiblePorts) {
+            const pos = portPos(instance, port);
+            const dx = graphX - pos.x;
+            const dy = graphY - pos.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if ( distance <= WIRE_SNAP_DISTANCE && distance < nearestDistance ) {
+                nearest = { instanceId: instance.instanceId, port, x: pos.x, y: pos.y, };
+                nearestDistance = distance;
+            }
+        }
+    }
+    return nearest;
+}
+
+function isSnapTarget(instanceId, port) {
+    return (
+        pendingWire?.snapTarget?.instanceId === instanceId &&
+        pendingWire?.snapTarget?.port === port
+    );
+}
+
 // per-instance port-count override (composites: 0/1/2 depending on what
 // was grouped, per instance. see groupSelectionIntoComposite in the
 // store). falls back to the registry default for every other node type.
@@ -254,14 +293,40 @@ function onBgPointerMove(e) {
         boxSelect = { ...boxSelect, endX: cur.x, endY: cur.y };
     }
     if (pendingWire) {
-        const rect = svgEl.getBoundingClientRect();
-        pendingWire = { ...pendingWire, cx: e.clientX - rect.left, cy: e.clientY - rect.top };
+    const rect = svgEl.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const graphPos = screenToGraph(cx, cy);
+    const snapTarget = findNearestInputPort(graphPos.x, graphPos.y, pendingWire.fromId);
+    const previousTarget = pendingWire.snapTarget;
+    const targetChanged =
+        previousTarget?.instanceId !== snapTarget?.instanceId ||
+        previousTarget?.port !== snapTarget?.port;
+    if (targetChanged) {
+        if (snapTarget) {
+            hapticTick();
+        } else if (previousTarget) {
+            hapticSnap();
+        }
     }
+    pendingWire = {...pendingWire, cx, cy, snapTarget,};
+}
 }
 function onBgPointerUp() {
     isPanning = false;
     if (svgEl) svgEl.style.cursor = '';
-    if (pendingWire) pendingWire = null;
+    if (pendingWire) {
+        const target = pendingWire.snapTarget;
+        if (target) {
+            addWire(
+                pendingWire.fromId,
+                pendingWire.fromPort,
+                target.instanceId,
+                target.port
+            );
+        }
+        pendingWire = null;
+    }
     if (boxSelect) {
         applyBoxSelect(boxSelect);
         boxSelect = null;
@@ -316,30 +381,49 @@ onDestroy(() => unregisterDropHandler(tryDropNode));
 function onNodePointerDown(e, instanceId) {
     e.stopPropagation();
     if (e.button !== 0) return;
-
     if (e.shiftKey || e.metaKey || e.ctrlKey) {
         toggleMultiSelect(instanceId);
         return; // modifier-click is multi-select only, doesn't start a drag or change single-selection
     }
-
     clearMultiSelect();
     selectNode(instanceId);
     const inst = currentInstances().find(n => n.instanceId === instanceId);
     if (!inst) return;
-    pushKineticUndo();
+    const draggedIds = multiSelected.has(instanceId) ? [...multiSelected] : [instanceId];
+    const draggedNodes = draggedIds
+        .map(id => {
+            const node = currentInstances().find(n => n.instanceId === id);
+            if (!node) return null;
+            return {
+                instanceId: id,
+                origX: node.position?.x ?? 0,
+                origY: node.position?.y ?? 0,
+            };
+        })
+        .filter(Boolean);
     nodeDrag = {
-        instanceId,
-        startX: e.clientX, startY: e.clientY,
-        origX: inst.position?.x ?? 0, origY: inst.position?.y ?? 0,
+        startX: e.clientX,
+        startY: e.clientY,
+        nodes: draggedNodes,
     };
     window.addEventListener('pointermove', onNodeDragMove);
     window.addEventListener('pointerup', onNodeDragUp);
 }
 function onNodeDragMove(e) {
     if (!nodeDrag) return;
-    const dx = (e.clientX - nodeDrag.startX) / zoom;
-    const dy = (e.clientY - nodeDrag.startY) / zoom;
-    moveNode(nodeDrag.instanceId, nodeDrag.origX + dx, nodeDrag.origY + dy);
+    pushKineticUndo();
+    const rawDx = (e.clientX - nodeDrag.startX) / zoom;
+    const rawDy = (e.clientY - nodeDrag.startY) / zoom;
+    // shift = free movement
+    const dx = e.shiftKey ? rawDx : snapToGrid(rawDx);
+    const dy = e.shiftKey ? rawDy : snapToGrid(rawDy);
+    for (const node of nodeDrag.nodes) {
+        moveNode(
+            node.instanceId,
+            node.origX + dx,
+            node.origY + dy
+        );
+    }
 }
 function onNodeDragUp() {
     nodeDrag = null;
@@ -349,6 +433,7 @@ function onNodeDragUp() {
 function nudgeSelection(dx, dy) {
     const ids = multiSelectCount > 0 ? [...multiSelected] : (kinetic.selectedInstanceId ? [kinetic.selectedInstanceId] : []);
     if (!ids.length) return false;
+    pushKineticUndo();
     for (const id of ids) {
         const inst = currentInstances().find(n => n.instanceId === id);
         if (inst) moveNode(id, (inst.position?.x ?? 0) + dx, (inst.position?.y ?? 0) + dy);
@@ -503,7 +588,7 @@ export function getMultiSelectCount() { return multiSelectCount; }
         <pattern id="ng-grid" width={20 * zoom} height={20 * zoom}
             x={pan.x % (20 * zoom)} y={pan.y % (20 * zoom)}
             patternUnits="userSpaceOnUse">
-            <circle cx="0.5" cy="0.5" r="0.5" fill="rgba(255,255,255,0.06)" />
+            <circle cx="0.5" cy="0.5" r="0.5" fill="var(--color-text-dim)" />
         </pattern>
     </defs>
     <rect class="ng-bg" width="100%" height="100%" fill="url(#ng-grid)" />
@@ -529,9 +614,11 @@ export function getMultiSelectCount() { return multiSelectCount; }
             {@const fromInst = currentInstances().find(n => n.instanceId === pendingWire.fromId)}
             {#if fromInst}
                 {@const fp  = portPos(fromInst, pendingWire.fromPort)}
-                {@const tgx = (pendingWire.cx - pan.x) / zoom}
-                {@const tgy = (pendingWire.cy - pan.y) / zoom}
-                <path class="ng-wire-pending" d={wirePath(fp.x, fp.y, tgx, tgy)} />
+                {@const cursorX = (pendingWire.cx - pan.x) / zoom}
+                {@const cursorY = (pendingWire.cy - pan.y) / zoom}
+                {@const tgx = pendingWire.snapTarget?.x ?? cursorX}
+                {@const tgy = pendingWire.snapTarget?.y ?? cursorY}
+                <path class="ng-wire-pending {pendingWire.snapTarget ? 'snapped' : ''}" d={wirePath(fp.x, fp.y, tgx, tgy)} />
             {/if}
         {/if}
 
@@ -544,14 +631,14 @@ export function getMultiSelectCount() { return multiSelectCount; }
             {@const multiSel = multiSelected.has(instance.instanceId)}
 
             <g
-                class="ng-node {selected ? 'selected' : ''} {multiSel ? 'multi-selected' : ''} {!instance.enabled ? 'bypassed' : ''} {isDimmed(instance.instanceId) ? 'dimmed' : ''}"
+                class="ng-node ng-node-blur {selected ? 'selected' : ''} {multiSel ? 'multi-selected' : ''} {!instance.enabled ? 'bypassed' : ''} {isDimmed(instance.instanceId) ? 'dimmed' : ''}"
                 transform="translate({gx},{gy})"
                 onpointerdown={e => onNodePointerDown(e, instance.instanceId)}
                 oncontextmenu={e => onNodeRightClick(e, instance.instanceId)}
                 ondblclick={e => onNodeDblClick(e, instance)}
             >
                 <rect x="0" y="0" width={NODE_W} height={NODE_H} rx="8"
-                    fill="rgba(18,22,40,0.92)"
+                    fill="var(--color-surface-3)" class="ng-node-blur"
                     stroke={multiSel ? 'var(--color-warning)' : (selected ? col : 'rgba(255,255,255,0.10)')}
                     stroke-width={multiSel ? 2 : (selected ? 1.5 : 1)} />
                 <rect x="0" y="0" width={NODE_W} height="4" rx="4" fill={col} />
@@ -568,12 +655,14 @@ export function getMultiSelectCount() { return multiSelectCount; }
                 {/if}
 
                 {#if hasInputFor(instance, def)}
-                    <circle class="ng-port ng-port-in" cx="0" cy={NODE_H * 0.3} r="5"
+                    <circle class="ng-port ng-port-in {isSnapTarget(instance.instanceId, 'input') ? 'snap-target' : ''}" 
+                        cx="0" cy={NODE_H * 0.3} r="5"
                         onpointerdown={e => e.stopPropagation()}
                         onpointerup={e => onInputPortUp(e, instance.instanceId, 'input')} />
                 {/if}
                 {#if isMultiInputFor(instance, def)}
-                    <circle class="ng-port ng-port-in ng-port-b" cx="0" cy={NODE_H * 0.7} r="5"
+                    <circle class="ng-port ng-port-in ng-port-b {isSnapTarget(instance.instanceId, 'inputB') ? 'snap-target' : ''}" 
+                        cx="0" cy={NODE_H * 0.7} r="5"
                         onpointerdown={e => e.stopPropagation()}
                         onpointerup={e => onInputPortUp(e, instance.instanceId, 'inputB')} />
                 {/if}
@@ -640,7 +729,7 @@ export function getMultiSelectCount() { return multiSelectCount; }
                 <button class="ng-search-item" onclick={() => addFromSearch(def.id)}>
                     <span>{def.icon}</span>
                     <span class="ng-search-label">{def.label}</span>
-                    <span class="ng-search-cat">{def.category}</span>
+                    <span class="ng-search-cat" style="--nc:{def.color}">{def.category}</span>
                 </button>
             {/each}
             {#if !searchResults.length}
@@ -686,20 +775,20 @@ export function getMultiSelectCount() { return multiSelectCount; }
     outline:  none;
     cursor:   default;
     user-select: none;
-    background: rgba(8,10,22,0.6);
 }
 .ng-bg { cursor: default; }
 
 .ng-wire {
     fill:           none;
-    stroke:         rgba(255,255,255,0.25);
+    stroke:         var(--color-text-secondary);
     stroke-width:   3;
     cursor:         pointer;
     transition:     stroke 0.1s;
 }
-.ng-wire:hover    { stroke: rgba(255,255,255,0.55); stroke-width: 4; }
+.ng-wire:hover    { stroke: var(--color-accent-hover); stroke-width: 4; }
 .ng-wire.selected { stroke: var(--color-accent); stroke-width: 5; }
 .ng-wire-pending  { fill: none; stroke: var(--color-accent); stroke-width: 2.5; stroke-dasharray: 5 3; pointer-events: none; }
+.ng-wire-pending.snapped { stroke-dasharray: none; stroke-width: 3; }
 
 .ng-box-select {
     fill:            var(--color-accent-subtle);
@@ -715,6 +804,7 @@ export function getMultiSelectCount() { return multiSelectCount; }
 .ng-node.bypassed     { opacity: 0.4; }
 .ng-node.dimmed       { opacity: 0.18; }
 .ng-node.multi-selected { filter: drop-shadow(0 0 4px var(--color-warning-glow)); }
+.ng-node-blur { backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);}
 
 .ng-device-filter {
     position: absolute;
@@ -748,10 +838,10 @@ export function getMultiSelectCount() { return multiSelectCount; }
     z-index: 20;
 }
 
-.ng-node-icon  { font-size: 13px; fill: rgba(255,255,255,0.7); dominant-baseline: middle; }
-.ng-node-label { font-size: 12px; fill: #e8e4da; font-weight: 600; dominant-baseline: middle; font-family: inherit; }
-.ng-node-bypass{ font-size: 11px; fill: rgba(248,113,113,0.8); text-anchor: end; dominant-baseline: middle; }
-.ng-node-composite-badge { font-size: 11px; fill: rgba(255,255,255,0.5); text-anchor: end; dominant-baseline: middle; }
+.ng-node-icon  { font-size: 13px; fill: var(--color-text); dominant-baseline: middle; user-select: none; -webkit-user-select: none; }
+.ng-node-label { font-size: 12px; fill: var(--color-text); font-weight: 600; dominant-baseline: middle; font-family: inherit; user-select: none; -webkit-user-select: none; }
+.ng-node-bypass{ font-size: 11px; fill: rgba(248,113,113,0.8); text-anchor: end; dominant-baseline: middle; user-select: none; -webkit-user-select: none; }
+.ng-node-composite-badge { font-size: 11px; fill: rgba(255,255,255,0.5); text-anchor: end; dominant-baseline: middle; user-select: none; -webkit-user-select: none; }
 
 .ng-port {
     cursor:         crosshair;
@@ -762,9 +852,10 @@ export function getMultiSelectCount() { return multiSelectCount; }
 .ng-port-out { fill: rgba(34,197,94,0.6);  stroke: #22c55e; }
 .ng-port-b   { fill: rgba(248,113,113,0.6);stroke: #f87171; }
 .ng-port:hover { r: 7; }
+.ng-port.snap-target { r: 8; filter: drop-shadow(0 0 5px var(--color-accent)); }
 
-.ng-empty-h { font-size: 18px; fill: rgba(255,255,255,0.2); font-weight: 600; }
-.ng-empty-s { font-size: 13px; fill: rgba(255,255,255,0.12); }
+.ng-empty-h { font-size: 18px; fill: var(--color-text); font-weight: 600; user-select: none; -webkit-user-select: none; }
+.ng-empty-s { font-size: 13px; fill: var(--color-text-dim); user-select: none; -webkit-user-select: none; }
 
 .ng-search-overlay {
     position:  fixed;
@@ -797,10 +888,12 @@ export function getMultiSelectCount() { return multiSelectCount; }
     font-family:   inherit;
     text-align:    left;
     cursor:        pointer;
+    user-select: none;
+    -webkit-user-select: none;
 }
 .ng-search-item:hover { background: var(--color-surface-2); color: var(--color-text); }
 .ng-search-label { flex: 1; font-weight: 500; }
-.ng-search-cat   { font-size: 10px; color: var(--color-text-dim); }
+.ng-search-cat   { font-size: 10px; color:var(--nc); }
 .ng-search-empty { padding: 10px 12px; font-size: 11px; color: var(--color-text-dim); }
 
 .ng-ctx-menu {
@@ -825,6 +918,8 @@ export function getMultiSelectCount() { return multiSelectCount; }
     font-family:inherit;
     text-align: left;
     cursor:     pointer;
+    user-select: none;
+    -webkit-user-select: none;
 }
 .ng-ctx-item:hover        { background: var(--color-surface-2); }
 .ng-ctx-item.danger:hover { background: var(--color-danger-subtle); color: var(--color-danger); }

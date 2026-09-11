@@ -10,6 +10,8 @@ import { resolveField } from '../lib/aerolux/kinetic/nodeRegistry.js';
 import { bakeComposite as precomputeBakeCache } from '../lib/aerolux/kinetic/bake.js';
 import { createUndoEngine } from '../lib/aerolux/kinetic/kinetic-state.js';
 import { emitter } from '../lib/aerolux/aerolux-init.svelte.js';
+import { editor } from './velocity.svelte.js';
+import { settings } from './settings.svelte.js';
 
 // id helpers –––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
@@ -48,7 +50,8 @@ function createDevice(overrides = {}) {
         // Live MIDI push (Stage modal)
         // null port = not connected
         outputPort:   null,               // string | null (a real output port name)
-        displayMode:  'palette',          // 'palette' (snap to editor.palette) | 'sysex' (full 262k-colour RGB)
+        outputIndex:  null,                // stable u8 index assigned by kinetic_live_connect; null = not connected
+        displayMode:  'palette',          // 'palette' (snap to editor.palette, quantized in Rust) | 'sysex' (full 262k-colour RGB)
         ...overrides,
     };
 }
@@ -68,7 +71,7 @@ export const kinetic = $state({
         playheadTick:  0,
         bpm:           120,
         timeDiv:       96,
-        totalDuration: 960,
+        totalDuration: 768,
         loop:          false,
     },
 });
@@ -239,7 +242,15 @@ function markKineticDirty() {
     default transport settings, cleared undo history
 */
 export function resetKineticState() {
-    kinetic.rootInstances = [];
+    kinetic.graphVersion++;
+    kinetic.rootInstances = settings.editor?.kineticDefaultOutput === false
+        ? []
+        : [{
+            instanceId: makeId('node'), nodeId: 'output', enabled: true,
+            params: { target: 'canvas' }, position: { x: 420, y: 160 },
+            timeRange: null, automation: {}, label: null,
+            subgraph: null, baked: false, bakedCache: null,
+        }];
     kinetic.rootWires = [];
     kinetic.devices = [createDevice({ isPrimary: true })];
     kinetic.graphPath = [];
@@ -249,9 +260,9 @@ export function resetKineticState() {
     kinetic.transport.playheadTick = 0;
     kinetic.transport.bpm = 120;
     kinetic.transport.timeDiv = 96;
-    kinetic.transport.totalDuration = 960;
+    kinetic.transport.totalDuration = 768;
     kinetic.transport.loop = false;
-    kineticUndoEngine.clear();
+    markKineticDirty();
     syncKineticUndoState();
 }
 
@@ -262,6 +273,7 @@ export function resetKineticState() {
 @param {{rootInstances:Array, rootWires:Array, devices:Array|null, transport:object}} loaded
 */
 export function applyKineticProjectState(loaded) {
+    kinetic.graphVersion++;
     kinetic.rootInstances = loaded.rootInstances;
     kinetic.rootWires = loaded.rootWires;
     kinetic.devices = (loaded.devices && loaded.devices.length)
@@ -989,39 +1001,111 @@ export function updateDevice(deviceId, patch) {
 }
 
 // live MIDI push connection lifecycle ––––––––––––––––––––––––––––––
-// wrapper around the kinetic_midi_* Tauri commands (lib.rs), keyed by
-// device.id. connection lifetime is tied to the stage modal's own
-// port-select UI, not to addDevice/removeDevice (a device can exist with
+// connection lifetime is tied to the Stage modal's own port-select UI,
+//  not to addDevice/removeDevice (a device can exist with 
 // outputPort:null (no live push) indefinitely).
+//
+// connect flow: resolve this device's address list -> kinetic_live_connect
+// -> tell rust the current quantise mode -> push one clear frame so the
+// physical unit starts from a known-dark state rather than inheriting
+// whatever a previous session/tool left lit
+
+function paletteToBytes(palette) {
+    const out = new Array(128).fill(null).map(() => [0, 0, 0]);
+    for (const entry of palette ?? []) {
+        if (entry.i >= 0 && entry.i < 128) out[entry.i] = [entry.r, entry.g, entry.b];
+    }
+    return out;
+}
 
 export async function connectDeviceOutput(deviceId, portName) {
     const { invoke } = await import('@tauri-apps/api/core');
-    const { pushClearFrame } = await import('../lib/aerolux/kinetic/livePush.js');
-    await invoke('kinetic_live_connect', { key: deviceId, portName });
-    updateDevice(deviceId, { outputPort: portName });
+    const { resolveDeviceAddresses, invalidateDeviceAddresses, pushClearFrame } = await import('../lib/aerolux/kinetic/livePush.js');
 
-    // force the physical unit to a known-dark state before live push starts
-    // driving it, otherwise it can inherit pads left stuck lit by a
-    // previous session/tool
     const device = kinetic.devices.find(d => d.id === deviceId);
-    await pushClearFrame(deviceId, device?.logoOrMode ?? 'logo');
+    if (!device) return;
+
+    invalidateDeviceAddresses(deviceId);
+    const addresses = resolveDeviceAddresses(device.logoOrMode ?? 'logo');
+
+    const index = await invoke('kinetic_live_connect', {
+        key: deviceId,
+        portName,
+        addresses: addresses.map(a => a.addr),
+        tolerance: 0,
+    });
+
+    updateDevice(deviceId, { outputPort: portName, outputIndex: index });
+
+    await invoke('kinetic_live_set_quantize', {
+        key: deviceId,
+        enabled: device.displayMode === 'palette',
+        palette: paletteToBytes(editor.palette),
+    });
+
+    await pushClearFrame(deviceId, index, device.logoOrMode ?? 'logo');
 }
 
 export async function disconnectDeviceOutput(deviceId) {
     const { invoke } = await import('@tauri-apps/api/core');
-    const { pushClearFrame } = await import('../lib/aerolux/kinetic/livePush.js');
+    const { pushClearFrame, invalidateDeviceAddresses } = await import('../lib/aerolux/kinetic/livePush.js');
     const device = kinetic.devices.find(d => d.id === deviceId);
+    if (!device?.outputPort || device.outputIndex == null) return;
 
     // leave the physical unit dark rather than stuck on whatever it last
-    // displayed, since nothing will be pushing to it anymore. push is
-    // fire-and-forget on the Rust side (a mutex set + notify), so give its
-    // dedicated thread a brief moment to actually wake and write it out
-    // before tearing the connection down underneath it.
-    await pushClearFrame(deviceId, device?.logoOrMode ?? 'logo');
+    // displayed. bypasses the coarse diff, so give the send thread a brief
+    // moment to actually drain it before tearing the connection down.
+    await pushClearFrame(deviceId, device.outputIndex, device.logoOrMode ?? 'logo');
     await new Promise(r => setTimeout(r, 50));
 
     await invoke('kinetic_live_disconnect', { key: deviceId });
-    updateDevice(deviceId, { outputPort: null });
+    invalidateDeviceAddresses(deviceId);
+    updateDevice(deviceId, { outputPort: null, outputIndex: null });
+}
+
+/**
+    changes a connected device's quantise mode ('palette' snaps to
+    editor.palette in rust; 'sysex' sends full RGB63 untouched)
+
+@param {string} deviceId
+@param {'palette'|'sysex'} displayMode
+*/
+export async function setDeviceDisplayMode(deviceId, displayMode) {
+    updateDevice(deviceId, { displayMode });
+    const device = kinetic.devices.find(d => d.id === deviceId);
+    if (!device?.outputPort) return; // not live-connected, nothing to tell Rust
+
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('kinetic_live_set_quantize', {
+        key: deviceId,
+        enabled: displayMode === 'palette',
+        palette: paletteToBytes(editor.palette),
+    });
+}
+
+// disconnect toasts ––––––––––––––––––––––––––––––––––––––––––––––––
+// Rust emits 'kinetic:device-disconnected' (payload = the device's own
+// id/key) on a failed send or when the background port-poll notices a
+// port has vanished. the device's send thread stays alive, paused, until
+// connectDeviceOutput() is called again for it (reconnect or a new pick).
+// this listener is registered once, at module load, since it's a global
+// concern rather than something any one component owns.
+
+let __liveDisconnectListenerRegistered = false;
+
+export async function initKineticLiveDisconnectListener() {
+    if (__liveDisconnectListenerRegistered) return;
+    __liveDisconnectListenerRegistered = true;
+
+    const { listen } = await import('@tauri-apps/api/event');
+    const { showToast } = await import('../lib/aerolux/toast.js');
+
+    await listen('kinetic:device-disconnected', (event) => {
+        const deviceId = event.payload;
+        const device = kinetic.devices.find(d => d.id === deviceId);
+        const label = device?.instanceNo ?? 'A device';
+        showToast(`${label} disconnected. Reconnect it from the Stage.`, 'warning', 5000);
+    });
 }
 
 // transport ––––––––––––––––––––––––––––––––––––––––––––––––––––––––
@@ -1101,6 +1185,25 @@ const primaryDevice = $derived(
 export function selectedNode()     { return selNode; }
 export function selectedWire()     { return selWire; }
 export function getPrimaryDevice() { return primaryDevice; }
+
+// shared engine context ––––––––––––––––––––––––––––––––––––––––––––
+// this is where both tick loops for VirtualLPs and livePush.js 
+// assemble what they compile/sample against. any future field the 
+// engine needs goes here once and reaches both runtimes automatically
+
+export function buildEngineContext(t) {
+    return {
+        instances:    currentInstances(),
+        wires:        currentWires(),
+        pathKey:      kinetic.graphPath.join('>'),
+        graphVersion: kinetic.graphVersion,
+        palette:      editor.palette,
+        devices:      kinetic.devices,
+        gradients:    availableGradients.map,
+        currentTick:  t,
+        playing:      kinetic.transport.playing,
+    };
+}
 
 // bake orchestration –––––––––––––––––––––––––––––––––––––––––––––––
 

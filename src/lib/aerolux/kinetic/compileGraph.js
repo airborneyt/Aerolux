@@ -19,6 +19,7 @@
 // ============================================================================
 
 import { nullField, gateField } from './field.js';
+import { ensureChannelGroups } from './channelSimulation.js';
 
 const OUTPUT_NODE_ID = 'output';
 
@@ -30,6 +31,7 @@ const OUTPUT_NODE_ID = 'output';
 @returns {{ outputs: Record<string, Field>, statefulFields: Field[] }}
 */
 export function compileGraph(nodeInstances, wires, context, resolveField) {
+    ensureChannelGroups(context);
     const instances = new Map(nodeInstances.map(n => [n.instanceId, n]));
 
     const incoming = new Map(); // toId -> Wire[]

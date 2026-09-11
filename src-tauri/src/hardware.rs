@@ -1,6 +1,6 @@
 // src-tauri/src/hardware.rs
 // OS-level hardware detection: GPU vendor/model/VRAM, system RAM,
-// CPU thread count. 
+// CPU thread count.
 //
 // one-shot: call get_hardware_info() once per session from the
 // frontend (mirroring compat.js's existing manual "Run again" button
@@ -23,14 +23,14 @@ use sysinfo::System;
 
 #[derive(Serialize, Clone, Debug)]
 pub struct HardwareInfo {
-    pub gpu_vendor:            String,       // "nvidia" | "amd" | "apple" | "intel" | "unknown"
-    pub gpu_name:              String,       // raw model string, empty if undetectable
-    pub gpu_vram_mb:           Option<u64>,  // None when genuinely undetectable
-    pub is_unified_memory:     bool,         // true for Apple Silicon
-    pub system_ram_mb:         u64,
-    pub cpu_threads:           u32,
-    pub acceleration_available: bool,        // can llama.cpp actually use a GPU backend here
-    pub acceleration_backend:   String,      // "metal" | "cuda" | "vulkan" | "none"
+    pub gpu_vendor: String, // "nvidia" | "amd" | "apple" | "intel" | "unknown"
+    pub gpu_name: String,   // raw model string, empty if undetectable
+    pub gpu_vram_mb: Option<u64>, // None when genuinely undetectable
+    pub is_unified_memory: bool, // true for Apple Silicon
+    pub system_ram_mb: u64,
+    pub cpu_threads: u32,
+    pub acceleration_available: bool, // can llama.cpp actually use a GPU backend here
+    pub acceleration_backend: String, // "metal" | "cuda" | "vulkan" | "none"
 }
 
 #[tauri::command]
@@ -42,7 +42,7 @@ pub fn get_hardware_info() -> HardwareInfo {
     sys.refresh_all();
 
     let system_ram_mb = sys.total_memory() / 1024 / 1024; // sysinfo reports bytes
-    let cpu_threads    = sys.cpus().len() as u32;
+    let cpu_threads = sys.cpus().len() as u32;
 
     HardwareInfo {
         gpu_vendor,
@@ -104,7 +104,14 @@ fn detect_acceleration(gpu_vendor: &str) -> (bool, String) {
         // reuse the nvidia-smi check that already proved reliable for
         // vram detection above as a presence/driver-availability signal.
         let available = Command::new("nvidia-smi").output().is_ok();
-        (available, if available { "cuda".to_string() } else { "none".to_string() })
+        (
+            available,
+            if available {
+                "cuda".to_string()
+            } else {
+                "none".to_string()
+            },
+        )
     } else if gpu_vendor == "amd" || gpu_vendor == "intel" {
         (true, "vulkan".to_string())
     } else {
@@ -163,12 +170,18 @@ fn detect_gpu() -> (String, String, Option<u64>, bool) {
     let entries: Vec<&serde_json::Value> = displays.iter().collect();
 
     let is_integrated = |entry: &serde_json::Value| -> bool {
-        let name = entry.get("sppci_model").or_else(|| entry.get("_name"))
-            .and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-        name.contains("intel") && (name.contains("uhd") || name.contains("iris") || name.contains("hd graphics"))
+        let name = entry
+            .get("sppci_model")
+            .or_else(|| entry.get("_name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase();
+        name.contains("intel")
+            && (name.contains("uhd") || name.contains("iris") || name.contains("hd graphics"))
     };
 
-    let chosen = entries.iter()
+    let chosen = entries
+        .iter()
         .find(|e| !is_integrated(e))
         .copied()
         .unwrap_or(entries[0]);
@@ -182,7 +195,11 @@ fn detect_gpu() -> (String, String, Option<u64>, bool) {
 
     let lower = name.to_lowercase();
     let is_apple_silicon = lower.contains("apple")
-        || (lower.starts_with('m') && (lower.contains("m1") || lower.contains("m2") || lower.contains("m3") || lower.contains("m4")));
+        || (lower.starts_with('m')
+            && (lower.contains("m1")
+                || lower.contains("m2")
+                || lower.contains("m3")
+                || lower.contains("m4")));
 
     let vendor = if is_apple_silicon {
         "apple"
@@ -219,7 +236,9 @@ fn parse_vram_string(s: &str) -> Option<u64> {
     // system_profiler reports strings like "8 GB" or "1536 MB"
     let s = s.trim();
     let parts: Vec<&str> = s.split_whitespace().collect();
-    if parts.len() != 2 { return None; }
+    if parts.len() != 2 {
+        return None;
+    }
     let value: f64 = parts[0].parse().ok()?;
     match parts[1].to_uppercase().as_str() {
         "GB" => Some((value * 1024.0) as u64),
@@ -264,12 +283,20 @@ fn detect_gpu() -> (String, String, Option<u64>, bool) {
         return ("unknown".into(), String::new(), None, false);
     };
 
-    let name = entry.get("Name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let name = entry
+        .get("Name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let vram_bytes = entry.get("AdapterRAM").and_then(|v| v.as_u64());
     let vram_mb = vram_bytes.map(|b| b / 1024 / 1024);
 
     let lower = name.to_lowercase();
-    let vendor = if lower.contains("nvidia") || lower.contains("geforce") || lower.contains("rtx") || lower.contains("gtx") {
+    let vendor = if lower.contains("nvidia")
+        || lower.contains("geforce")
+        || lower.contains("rtx")
+        || lower.contains("gtx")
+    {
         "nvidia"
     } else if lower.contains("amd") || lower.contains("radeon") {
         "amd"
@@ -285,11 +312,15 @@ fn detect_gpu() -> (String, String, Option<u64>, bool) {
 #[cfg(target_os = "linux")]
 fn detect_gpu() -> (String, String, Option<u64>, bool) {
     let lspci = Command::new("lspci").output();
-    let name = lspci.ok()
+    let name = lspci
+        .ok()
         .and_then(|out| String::from_utf8(out.stdout).ok())
         .and_then(|stdout| {
-            stdout.lines()
-                .find(|line| line.contains("VGA compatible controller") || line.contains("3D controller"))
+            stdout
+                .lines()
+                .find(|line| {
+                    line.contains("VGA compatible controller") || line.contains("3D controller")
+                })
                 .map(|line| line.to_string())
         })
         .unwrap_or_default();

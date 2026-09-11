@@ -1,19 +1,32 @@
 // src/lib/aerolux/kinetic/kinetic-state.js
 // ============================================================================
 // KINETIC ENGINE: UNDO/REDO TRACKER
-// generic, headless snapshot/restore stack. this file only
-// knows how to push/pop snapshots via caller-supplied getSnapshot/
-// applySnapshot and has zero knowledge of what a "node" or "device" is.
+//
+// this is the kinetic equivalent for the undo/redo stack and session history
+// since velocity and kinetic are not interchangeable, both editors' history
+// have to be treated separately.
+//
+// usage:
+//   const kineticState = createU
 // ============================================================================
 
-const MAX_UNDO = 40;
+const MAX_UNDO    = 40;
+const MAX_HISTORY = 12;
 
 /**
  * @param {{ getSnapshot: () => *, applySnapshot: (snap:*) => void, afterRestore?: () => void }} config
  */
-export function createUndoEngine({ getSnapshot, applySnapshot, afterRestore }) {
+export function createUndoEngine({ 
+    getSnapshot, 
+    applySnapshot, 
+    afterRestore,
+    onToast,
+    onHistoryChange,
+    onStackChange, 
+}) {
     let undoStack = [];
     let redoStack = [];
+    let history   = [];
 
     function pushUndo() {
         undoStack.push(getSnapshot());
@@ -22,28 +35,69 @@ export function createUndoEngine({ getSnapshot, applySnapshot, afterRestore }) {
     }
 
     function undo() {
-        if (!undoStack.length) return false;
-        const current = getSnapshot();
-        const prev = undoStack.pop();
-        redoStack.push(current);
-        applySnapshot(prev);
+        if (!undoStack.length) {
+            onToast('Nothing to undo', 'info', 1200);
+            return;
+        }
+        redoStack.push(getSnapshot());
+        applySnapshot(undoStack.pop());
         afterRestore?.();
-        return true;
+        onToast('Undone', 'info', 1000);
     }
 
     function redo() {
-        if (!redoStack.length) return false;
-        const current = getSnapshot();
-        const next = redoStack.pop();
-        undoStack.push(current);
-        applySnapshot(next);
+        if (!redoStack.length) {
+            onToast('Nothing to redo', 'info', 1200);
+            return false;
+        }
+        undoStack.push(getSnapshot());
+        applySnapshot(redoStack.pop());
         afterRestore?.();
+        onToast('Redone', 'info', 1000);
         return true;
     }
 
     function canUndo() { return undoStack.length > 0; }
     function canRedo() { return redoStack.length > 0; }
-    function clear() { undoStack = []; redoStack = []; }
 
-    return { pushUndo, undo, redo, canUndo, canRedo, clear };
+    // session history ––––––––––––––––––––––––––––––––––––––––––––––
+
+    function pushHistory(entry) {
+        history.unshift(entry);
+        if (history.length > MAX_HISTORY) history.pop();
+        onHistoryChange([...history]);
+    }
+
+    function clearHistory() {
+        history = [];
+        onHistoryChange?.([]);
+    }
+
+    // Loading or creating a project starts a new editing session. Clear all
+    // undoable state as well as the visible session history in one operation.
+    function clear() {
+        undoStack = [];
+        redoStack = [];
+        history = [];
+        onHistoryChange?.([]);
+        onStackChange?.();
+    }
+
+    function getHistory() {
+        return [...history];
+    }
+
+    // public API –––––––––––––––––––––––––––––––––––––––––––––––––––
+
+    return { 
+        pushUndo, 
+        undo, 
+        redo, 
+        canUndo, 
+        canRedo, 
+        pushHistory,
+        clearHistory,
+        clear,
+        getHistory, 
+    };
 }

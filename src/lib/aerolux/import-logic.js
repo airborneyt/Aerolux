@@ -1,7 +1,7 @@
 // src/lib/aerolux/import-logic.js
 // import Logic for Aerolux gradients
 
-import { playSound } from "./sound";
+import { audio } from "./audio";
 
 /**
  * parses an Aerolux gradient .txt file into stops and step count
@@ -153,7 +153,7 @@ export function parseImportedPalette(text) {
     window.location.assign(
       "https://airborneyt.neocities.org/troll"
     );
-    playSound('incorrect_buzzer_noise');
+    audio.sfx.play('trollsound');
     throw new Error(`❌😱😂🤪🤪🤪`)
   };
 

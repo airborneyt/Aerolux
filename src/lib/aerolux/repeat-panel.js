@@ -49,12 +49,15 @@ export function initRepeatPanel({
       state.easing,
       stepCount ?? state.steps,
       state.tint, state.envelope, state.antiRepeat,
-      state.hueShift, state.satMult, state.hslDir,
+      state.hueShift, state.hslDir,
       labCache
     );
   }
 
-  document.getElementById('repeat-autofix-btn')?.addEventListener('click', () => {
+  const button = document.getElementById('repeat-autofix-btn');
+  if (!button) return () => {};
+
+  const onAutoFix = () => {
     const palette  = getPalette();
     const labCache = getLabCache();
     const state    = getEditorState();
@@ -115,5 +118,8 @@ export function initRepeatPanel({
     syncUiToState();
     renderAll();
     showToast(`Repeats resolved. Reduced to ${trialSteps} steps`, 'success');
-  });
+  };
+
+  button.addEventListener('click', onAutoFix);
+  return () => button.removeEventListener('click', onAutoFix);
 }

@@ -6,7 +6,6 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import { parseImportedPalette } from "../../lib/aerolux/import-logic";
-import { editor } from "../../stores/velocity.svelte";
 import { DEFAULT_PALETTE } from "../../lib/aerolux/palette";
 import { showToast } from "../../lib/aerolux/toast";
 
@@ -82,9 +81,6 @@ async function onDrop(e) {
 function confirm() {
     if (!pendingPalette) return;
 
-    editor.palette.length = 0;
-    editor.palette.push(...pendingPalette);
-
     showToast("Palette imported", "success");
     onImport?.(pendingPalette);
     closeModal();
@@ -94,8 +90,8 @@ function confirm() {
 
 // importing custom palettes
 export function resetPalette() {
-  editor.palette.length = 0;
-  editor.palette.push(...DEFAULT_PALETTE);
+  onImport?.(DEFAULT_PALETTE);
+  closeModal();
 }
 
 function closeModal() {
@@ -124,7 +120,7 @@ function closeModal() {
                 class="import-dropzone {isDragging ? 'drag-active' : ''}"
                 onclick={browse}
                 ondragover={onDragover}
-                ondragleave={onDragleave}
+                ondragleave={onDragLeave}
                 ondrop={onDrop}
                 role="button"
                 tabindex="0"

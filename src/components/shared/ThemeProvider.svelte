@@ -1,7 +1,7 @@
 <!-- src/components/shared/ThemeProvider.svelte -->
 <script>
 import { onMount } from 'svelte';
-import { getResolvedMode, loadTheme, applyTheme } from '../../stores/theme.svelte.js';
+import { getResolvedMode, loadTheme, applyTheme, applyTransparency } from '../../stores/theme.svelte.js';
 import { settings } from '../../stores/settings.svelte.js';
 import { detectMotion } from '../../stores/motion.svelte.js';
 
@@ -15,7 +15,7 @@ onMount(async () => {
 
 // keep DOM in sync reactively whenever theme state changes
 $effect(() => {
-    const _deps = [settings.theme.mode, settings.theme.accentH];
+    const _deps = [settings.theme.mode, settings.theme.accentH, settings.theme.transparency];
     applyTheme();
 });
 </script>

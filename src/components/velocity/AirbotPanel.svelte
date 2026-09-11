@@ -163,7 +163,7 @@ Rules:
 - description: one sentence, plain text
 - stops: 2–8 entries, first pos must be 0.0, last must be 1.0
 - r g b: integers 0–255
-- length: integer 2–16
+- length: integer 2–32
 - algorithm: exactly one of: rgb lab hsl vivid stepped
 - easing: exactly one of the listed values
 - Output ONLY the JSON object. First character is {. Last character is }.
@@ -431,7 +431,7 @@ function handleGenerationComplete(fullText, finishReason) {
 
         const gradLen = lengthOverride
             ? parseInt(lengthOverride)
-            : Math.max(2, Math.min(16, parseInt(data.length) || 16));
+            : Math.max(2, Math.min(32, parseInt(data.length) || 32));
 
         const aiStops = data.stops.map((s, idx) => ({
             id:  idx,
@@ -649,7 +649,7 @@ const statusDotState = $derived(
     <div class="al-option-group">
         <span class="al-label">Length</span>
         <input type="number" class="al-num-input"
-            min="2" max="16" placeholder="auto"
+            min="2" max="32" placeholder="auto"
             bind:value={lengthOverride}
             disabled={serverStatus !== 'ready' || generating} />
     </div>

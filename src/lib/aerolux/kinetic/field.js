@@ -279,3 +279,81 @@ export function colourCycleField(shapeField, resolveColour, mode = 'synced', opt
         },
     );
 }
+
+// modifier field that dynamically switches between stateless and stateful
+
+import {
+    groupKey, rasterizeOwner, sampleUpstream
+} from './particlePhysics.js';
+import {
+    ensureChannelGroups, registerGroupMember, stepGroup, localGridBounds,
+} from './channelSimulation.js';
+
+export function ModifierField(nodeType, params, context, inputField, instanceId, buildMember) {
+    const { channel = 0, scope = 'type', resolution = 9, maxParticles = 98,
+            edgeMode = 'none', restitution = 0.6, startTick = 0,
+            wallMinX, wallMaxX, wallMinY, wallMaxY } = params;
+
+    const channelGroups = ensureChannelGroups(context);
+    const bounds = (edgeMode !== 'none' && wallMinX != null)
+        ? { minX: wallMinX, maxX: wallMaxX, minY: wallMinY, maxY: wallMaxY }
+        : null;
+    const groupCacheKey = groupKey(channel, scope, nodeType);
+    let lastTick = 0;
+
+    return {
+        kind: 'stateful',
+        advance(dt, ctx) {
+            const t = ctx?.currentTick ?? 0;
+            lastTick = t;
+            if (t < startTick) return;
+
+            const member = buildMember({ ownerId: instanceId, inputField, resolution });
+            const group = registerGroupMember(channelGroups, channel, scope, nodeType, member, maxParticles);
+            stepGroup(group, dt, ctx?._physicsStep ?? 0, bounds, edgeMode, restitution, t, context.devices);
+        },
+        sample(x, y) {
+            if (lastTick < startTick) return sampleUpstream(inputField, x, y, lastTick);
+            const group = channelGroups.get(groupCacheKey);
+            if (!group) return null;
+            return rasterizeOwner(group.pool, instanceId).get(`${Math.round(x)},${Math.round(y)}`) ?? null;
+        },
+    };
+}
+
+export const modifierSharedParams = {
+    channel:      { type: 'int', label: 'Channel', default: 0, min: 0, max: 15,
+        hint: 'Nodes sharing a channel and scope affect each other.' },
+    scope: {
+        type: 'select', label: 'Scope', default: 'type',
+        options: [
+            { value: 'type', label: 'Same type only' },
+            { value: 'global', label: 'Global (any type)' },
+        ],
+        hint: '"Same type only": this node only interacts with other nodes of the same kind on this channel. "Global": interacts with every global-scope modifier on this channel, regardless of type.',
+    },
+    resolution:   { type: 'int', label: 'Seed resolution', default: 9, min: 3, max: 20,
+        hint: 'Grid density used to detect lit pixels from the input and turn them into particles.' },
+    maxParticles: { type: 'int', label: 'Max particles', default: 125, min: 4, max: 250,
+        hint: 'Shared pool cap for this channel+scope group.' },
+    startTick: {
+        type: 'int', label: 'Effect starts at', default: 0, min: 0, max: 1920, unit: 'ticks',
+        hint: 'Before this tick, the input passes through completely unaffected. From this tick on, any new input gets affected.',
+    },    
+};
+
+export const edgeParams = (defaultMode = 'none') => ({
+    edgeMode: {
+        type: 'select', label: 'Edge behaviour', default: defaultMode,
+        options: [
+            { value: 'none', label: 'None (unbounded)' },
+            { value: 'clamp', label: 'Clamp (settle at wall)' },
+            { value: 'bounce', label: 'Bounce' },
+        ],
+    },
+    restitution: { type: 'float', label: 'Bounce energy', default: 0.6, min: 0, max: 1, decimals: 2 },
+    wallMinX: { type: 'float', label: 'Wall min X', default: 0, min: -50, max: 50, decimals: 1, hint: 'Only used when Edge behaviour is Clamp/Bounce.' },
+    wallMaxX: { type: 'float', label: 'Wall max X', default: 9, min: -50, max: 50, decimals: 1 },
+    wallMinY: { type: 'float', label: 'Wall min Y', default: 0, min: -50, max: 50, decimals: 1 },
+    wallMaxY: { type: 'float', label: 'Wall max Y', default: 9, min: -50, max: 50, decimals: 1 },
+});

@@ -1,11 +1,11 @@
 <!-- src/components/modals/UnsavedChangesModal.svelte -->
 <!--
     single global instance, mounted once in App.svelte
-    reads unsavedPrompt from menu-bridge.svelte.js and resolves it via resolveUnsavedPrompt()
+    reads unsavedPrompt from menu.svelte.js and resolves it via resolveUnsavedPrompt()
     used by file → new, file → open, and the app quit (Cmd+Q / Alt+F4 / window close) flows alike
 -->
 <script>
-import { unsavedPrompt, resolveUnsavedPrompt } from '../../lib/aerolux/menu-bridge.svelte.js';
+import { unsavedPrompt, resolveUnsavedPrompt } from '../../lib/aerolux/menu.svelte.js';
 import { projects } from '../../stores/projects.svelte.js';
 
 const triggerCopy = {

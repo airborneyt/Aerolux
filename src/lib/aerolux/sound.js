@@ -4,20 +4,13 @@
 // todo: major overhaul, migrate to rust?
 
 const SOUND_FILES = {
-  midiSuccess:       '/sounds/midi_success.mp3',
-  midiFail:          '/sounds/midi_fail.mp3',
-  aiDownloading:     '/sounds/ai_downloading.mp3',
-  aiLoadSuccess:     '/sounds/ai_load_success.mp3',
-  aiGenerating:      '/sounds/ai_generating.mp3',
-  aiGenerateSuccess: '/sounds/ai_generate_success.mp3',
-  aiGenerateFail:    '/sounds/ai_generate_fail.mp3',
-  exportSuccess:     '/sounds/export_success.mp3',
-  downloadSuccess:   '/sounds/download_success.mp3',
+  startup:            '/sounds/aerolux.wav',
   incorrect_buzzer_noise: '/sounds/wrong-answer-buzzer.mp3'
 };
 
 const SOUND_VOLUMES = {
-  aiGenerating: 0.3,
+  ui: 1.0,
+  ost: 1.0,
 };
 
 const _cache = {};
@@ -60,6 +53,7 @@ export function playSound(name) {
 }
 
 // call once at app startup. preloads all sounds on the user's first click
-export function initSound() {
-  document.addEventListener('click', preload, { once: true });
+export async function initSound() {
+    await preload();
 }
+

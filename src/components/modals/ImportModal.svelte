@@ -61,7 +61,7 @@ async function browse() {
 
 // drag and drop ─────────────────────────────────────────────────────
 function onDragover(e) { e.preventDefault(); isDragging = true; }
-function onDragleave() { isDragging = false; }
+function onDragLeave() { isDragging = false; }
 async function onDrop(e) {
     e.preventDefault();
     isDragging = false;
@@ -116,7 +116,7 @@ function closeModal() {
                 class="import-dropzone {isDragging ? 'drag-active' : ''}"
                 onclick={browse}
                 ondragover={onDragover}
-                ondragleave={onDragleave}
+                ondragleave={onDragLeave}
                 ondrop={onDrop}
                 role="button"
                 tabindex="0"

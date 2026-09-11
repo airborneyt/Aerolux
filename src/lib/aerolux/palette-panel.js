@@ -139,8 +139,8 @@ export function initPalettePanel({
 }
 
     if (sortMode === 'original') {
-      grid.style.gridTemplateColumns = 'repeat(16,1fr)';
-      grid.style.gridTemplateRows = 'repeat(8,1fr)';
+      grid.style.gridTemplateColumns = 'repeat(16, minmax(0, 1fr))';
+      grid.style.gridTemplateRows = '';
       for (let cssRow = 0; cssRow < 8; cssRow++) {
         const rfb = 7 - cssRow;
         for (let col = 0; col < 16; col++) {

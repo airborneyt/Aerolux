@@ -139,11 +139,11 @@ function buildSinglePrompt(cs) {
 You are an agentic gradient editor. Output ONLY: {"actions":[...],"string"}
 
 Actions available:
-- {"action":"setStops","stops":[{"pos":0.0,"paletteIdx":1},...]}  2–16 stops, pos 0.0–1.0, must include pos 0.0 and pos 1.0
+- {"action":"setStops","stops":[{"pos":0.0,"paletteIdx":1},...]}  2–32 stops, pos 0.0–1.0, must include pos 0.0 and pos 1.0
 - {"action":"setAlgorithm","value":"rgb|lab|hsl|vivid|stepped"}
 - {"action":"setHslDir","value":"shortest|longest"}
 - {"action":"setEasing","value":"linear|easeIn|easeOut|sCurve|cubicIn|cubicOut|sineIn|sineOut|sineBoth|expoIn|expoOut|bounce|elastic"}
-- {"action":"setSteps","value":2-16}
+- {"action":"setSteps","value":2-32}
 - {"action":"setTint","paletteIdx":1,"strength":50}
 - {"action":"clearTint"}
 
@@ -161,9 +161,9 @@ function buildBatchPrompt(cs, n) {
 You are an agentic gradient editor. Generate ${n} distinct, creative variations.
 Output ONLY: {"variations":[{"name":"string","actions":[...]}],"string"}
 
-Actions: setStops (2–16 stops, pos 0–1, paletteIdx 1–127), setAlgorithm (rgb|lab|hsl|vivid|stepped),
+Actions: setStops (2–32 stops, pos 0–1, paletteIdx 1–127), setAlgorithm (rgb|lab|hsl|vivid|stepped),
 setHslDir (shortest|longest), setEasing (linear|easeIn|easeOut|sCurve|cubicIn|cubicOut|sineIn|
-sineOut|sineBoth|expoIn|expoOut|bounce|elastic), setSteps (2–16), setTint (paletteIdx 1–127,
+sineOut|sineBoth|expoIn|expoOut|bounce|elastic), setSteps (2–32), setTint (paletteIdx 1–127,
 strength 0–100), clearTint.
 
 palette: 128 entries. Index 0 invalid. 1–7 grey. 8–67 deep colours. 68–127 pastels.
@@ -430,7 +430,7 @@ async function run() {
     statusMsg    = isBatch ? `Generating ${batchCount} variations…` : 'Thinking…';
     resetStream();
 
-    generationId = Date.now();
+    generationId = String(Date.now());
     await subscribeEvents();
 
     const sysPrompt = isBatch

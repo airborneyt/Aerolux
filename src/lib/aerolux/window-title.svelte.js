@@ -15,7 +15,7 @@ export function initWindowTitle() {
 
   $effect.root(() => {
     $effect(() => {
-      const title = projects.currentType === null
+      const title = projects.activeEditor === null
         ? 'Aerolux'
         : `Aerolux | ${projects.currentName}${projects.isDirty ? ' •' : ''}`;
 

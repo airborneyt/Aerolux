@@ -1,40 +1,99 @@
-use tauri::Manager;
 use tauri::Emitter;
+use tauri::Manager;
 use tauri::WindowEvent;
 
+mod kinetic_live;
+mod llama_chat;
 mod llama_download;
 mod llama_server;
-mod llama_chat;
-mod kinetic_live;
 
-use std::sync::Mutex;
+mod bridge_server;
+
+mod haptics;
+
 use std::sync::atomic::{AtomicBool, Ordering};
- 
+use std::sync::Mutex;
+
 static QUITTING: AtomicBool = AtomicBool::new(false);
 
-// Use conditional compilation for the Midi types so the Windows compiler 
-// does not attempt to resolve macOS traits for midir's internal connections.
 #[cfg(not(target_os = "windows"))]
 use midir::{MidiOutput, MidiOutputConnection};
 
 #[cfg(target_os = "windows")]
 use midir::MidiOutput;
 
-mod menu;
-
 mod hardware;
 
 struct MidiState {
-    // midir's MidiOutputConnection type layout can vary per OS target.
-    // By wrapping it behind a platform attribute, Windows compiles cleanly.
     #[cfg(not(target_os = "windows"))]
     connection: Option<MidiOutputConnection>,
     #[cfg(target_os = "windows")]
     connection: Option<midir::MidiOutputConnection>,
 }
 
-// Each Tauri command below operates on this shared state.
-// Register all commands in invoke_handler.
+use std::net::UdpSocket;
+
+fn osc_string(value: &str) -> Vec<u8> {
+    let mut bytes = value.as_bytes().to_vec();
+    bytes.push(0);
+    while bytes.len() % 4 != 0 {
+        bytes.push(0);
+    }
+    bytes
+}
+
+fn build_gradient_message(index: i32, value: i32) -> Vec<u8> {
+    let mut packet = Vec::new();
+    packet.extend_from_slice(&osc_string("/loadednewgrad"));
+    packet.extend_from_slice(&osc_string(",ii"));
+    packet.extend_from_slice(&index.to_be_bytes());
+    packet.extend_from_slice(&value.to_be_bytes());
+    packet
+}
+
+#[tauri::command]
+fn send_gradient(stops: Vec<i32>) -> Result<(), String> {
+    if stops.is_empty() {
+        return Err("Gradient must contain at least one stop".to_string());
+    }
+    if stops.len() > 16 {
+        return Err(format!(
+            "Gradient must have a maximum of 16 gradient stops, got {}",
+            stops.len()
+        ));
+    }
+    for (i, &value) in stops.iter().enumerate() {
+        if !(0..=127).contains(&value) {
+            return Err(format!(
+                "Invalid palette value at stop {}: {}. Expected 0..127.",
+                i, value
+            ));
+        }
+    }
+
+    let socket = UdpSocket::bind("127.0.0.1:0")
+        .map_err(|e| format!("Failed to create UDP socket: {e}"))?;
+    const SEND_ADDR: &str = "127.0.0.1:9001";
+
+    let mut stages = [0i32; 16];
+    for (i, &value) in stops.iter().enumerate() {
+        stages[i] = value;
+    }
+
+    for (index, &value) in stages.iter().enumerate() {
+        let packet = build_gradient_message(index as i32, value);
+        socket
+            .send_to(&packet, SEND_ADDR)
+            .map_err(|e| format!("Failed to send gradient stage {}: {}", index, e))?;
+    }
+
+    let length_packet = build_gradient_message(16, stops.len() as i32);
+    socket
+        .send_to(&length_packet, SEND_ADDR)
+        .map_err(|e| format!("Failed to send gradient length: {e}"))?;
+
+    Ok(())
+}
 
 #[tauri::command]
 fn confirm_quit(app: tauri::AppHandle) {
@@ -50,16 +109,24 @@ fn confirm_quit(app: tauri::AppHandle) {
 #[tauri::command]
 fn midi_list_devices() -> Vec<String> {
     let output = MidiOutput::new("aerolux").unwrap();
-    output.ports().iter().filter_map(|p| output.port_name(p).ok()).collect()
+    output
+        .ports()
+        .iter()
+        .filter_map(|p| output.port_name(p).ok())
+        .collect()
 }
 
 #[tauri::command]
 fn midi_connect(state: tauri::State<Mutex<MidiState>>, device_id: String) -> Result<(), String> {
     let output = MidiOutput::new("aerolux").map_err(|e| e.to_string())?;
-    let port   = output.ports().into_iter()
+    let port = output
+        .ports()
+        .into_iter()
         .find(|p| output.port_name(p).unwrap_or_default() == device_id)
         .ok_or("Device not found")?;
-    let conn = output.connect(&port, "aerolux-out").map_err(|e| e.to_string())?;
+    let conn = output
+        .connect(&port, "aerolux-out")
+        .map_err(|e| e.to_string())?;
     state.lock().unwrap().connection = Some(conn);
     Ok(())
 }
@@ -91,12 +158,9 @@ fn midi_send_raw_sysex(data: Vec<u8>, state: tauri::State<Mutex<MidiState>>) -> 
 
 #[tauri::command]
 fn midi_list_outputs() -> Vec<String> {
-    let Ok(midi_out) =
-        midir::MidiOutput::new("aerolux-enum")
-    else {
+    let Ok(midi_out) = midir::MidiOutput::new("aerolux-enum") else {
         return Vec::new();
     };
-
     midi_out
         .ports()
         .iter()
@@ -109,16 +173,23 @@ fn midi_clear_pads(state: tauri::State<Mutex<MidiState>>) -> Result<(), String> 
     let mut guard = state.lock().unwrap();
     let conn = guard.connection.as_mut().ok_or("Not connected")?;
     let mut msg = vec![0xF0u8, 0x00, 0x20, 0x29, 0x02, 0x10, 0x0B];
-    for r in 1u8..=8 { for c in 1u8..=8 { msg.extend_from_slice(&[r*10+c, 0, 0, 0]); } }
+    for r in 1u8..=8 {
+        for c in 1u8..=8 {
+            msg.extend_from_slice(&[r * 10 + c, 0, 0, 0]);
+        }
+    }
     msg.push(0xF7);
     conn.send(&msg).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn check_vibrancy() -> bool {
-    #[cfg(target_os = "macos")]   { true  }
-    #[cfg(target_os = "windows")] { true  }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))] { false }
+    #[cfg(target_os = "macos")]
+    { true }
+    #[cfg(target_os = "windows")]
+    { true }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    { false }
 }
 
 #[cfg(target_os = "macos")]
@@ -130,18 +201,29 @@ use window_vibrancy::apply_mica;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(std::sync::Mutex::new(MidiState { connection: None }))
-        .manage(std::sync::Mutex::new(kinetic_live::KineticLiveState::new()))
+        .manage(kinetic_live::init_state())
         .manage(llama_server::init_state())
         .manage(llama_chat::init_abort_registry())
+        .manage(bridge_server::init_state())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_drpc::init())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
+
+            // background thread: detects a live-connected device's port
+            // vanishing (unplugged) even when nothing is actively being
+            // sent to it. see kinetic_live.rs's own header for why this
+            // can't just be a midir callback.
+            kinetic_live::spawn_port_poll(app.handle().clone());
 
             #[cfg(target_os = "macos")]
             {
@@ -156,12 +238,7 @@ pub fn run() {
                     }
                 });
 
-                let result = apply_vibrancy(
-                    &window,
-                    NSVisualEffectMaterial::HudWindow,
-                    None,
-                    None,
-                );
+                let result = apply_vibrancy(&window, NSVisualEffectMaterial::HudWindow, None, None);
                 if result.is_err() {
                     eprintln!("Vibrancy not available: {:?}", result);
                 }
@@ -171,8 +248,6 @@ pub fn run() {
             {
                 let _ = apply_mica(&window, Some(true));
             }
-
-            menu::build(app.handle())?;
 
             Ok(())
         })
@@ -186,10 +261,10 @@ pub fn run() {
             midi_clear_pads,
             midi_list_outputs,
             kinetic_live::kinetic_live_connect,
-            kinetic_live::kinetic_live_push,
+            kinetic_live::kinetic_live_push_batch,
+            kinetic_live::kinetic_live_set_quantize,
             kinetic_live::kinetic_live_disconnect,
             hardware::get_hardware_info,
-            menu::set_save_menu_enabled,
             llama_server::llama_start_server,
             llama_server::llama_stop_server,
             llama_server::llama_server_status,
@@ -197,12 +272,17 @@ pub fn run() {
             llama_download::download_llama_model,
             llama_download::get_llama_paths,
             llama_chat::llama_generate,
-            llama_chat::llama_abort_generation
+            llama_chat::llama_abort_generation,
+            bridge_server::bridge_start,
+            bridge_server::bridge_stop,
+            bridge_server::bridge_send,
+            haptics::haptic_fire,
+            haptics::haptics_available,
+            send_gradient,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
-        match event {
+        .run(|app_handle, event| match event {
             tauri::RunEvent::ExitRequested { api, .. } => {
                 if QUITTING.load(Ordering::SeqCst) {
                     return;
@@ -218,6 +298,5 @@ pub fn run() {
                 }
             }
             _ => {}
-        }
-    });
+        });
 }

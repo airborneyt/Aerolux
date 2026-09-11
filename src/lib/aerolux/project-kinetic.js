@@ -66,7 +66,7 @@ export function deserializeKineticState(state) {
         transport: {
             bpm: typeof state.transport?.bpm === 'number' ? state.transport.bpm : 120,
             timeDiv: typeof state.transport?.timeDiv === 'number' ? state.transport.timeDiv : 96,
-            totalDuration: typeof state.transport?.totalDuration === 'number' ? state.transport.totalDuration : 960,
+            totalDuration: typeof state.transport?.totalDuration === 'number' ? state.transport.totalDuration : 768,
             loop: !!state.transport?.loop,
         },
     };

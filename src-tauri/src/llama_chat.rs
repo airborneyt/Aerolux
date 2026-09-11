@@ -55,7 +55,7 @@ pub fn init_abort_registry() -> AbortRegistry {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
-    pub role:    String,
+    pub role: String,
     // String for plain text, array for multimodal content blocks.
     // The frontend sends the correct shape — we pass it through verbatim.
     pub content: serde_json::Value,
@@ -64,37 +64,37 @@ pub struct ChatMessage {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LlamaGenerateRequest {
     pub generation_id: String,
-    pub messages:      Vec<ChatMessage>,
-    pub max_tokens:    Option<u32>,
-    pub temperature:   Option<f32>,
+    pub messages: Vec<ChatMessage>,
+    pub max_tokens: Option<u32>,
+    pub temperature: Option<f32>,
     // JSON schema for structured output — passed as response_format to
     // the completions endpoint. None = plain text generation.
-    pub json_schema:   Option<serde_json::Value>,
+    pub json_schema: Option<serde_json::Value>,
     // GBNF grammar string for grammar-constrained decoding.
     // When set, takes precedence over json_schema for output format.
-    pub stream:        Option<bool>,
+    pub stream: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Clone)]
 pub struct TokenEvent {
     pub generation_id: String,
-    pub delta:         String,
-    pub done:          bool,
+    pub delta: String,
+    pub done: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
 pub struct GenerationDoneEvent {
-    pub generation_id:    String,
-    pub full_text:        String,
-    pub prompt_tokens:    u32,
+    pub generation_id: String,
+    pub full_text: String,
+    pub prompt_tokens: u32,
     pub completion_tokens: u32,
-    pub finish_reason:    String,
+    pub finish_reason: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
 pub struct GenerationErrorEvent {
     pub generation_id: String,
-    pub error:         String,
+    pub error: String,
 }
 
 // ── commands ─────────────────────────────────────────────────────────
@@ -111,7 +111,8 @@ pub async fn llama_generate<R: Runtime>(
     // Get the server port — fails fast if server isn't running yet.
     let port = {
         let guard = state.lock().unwrap();
-        guard.port()
+        guard
+            .port()
             .ok_or_else(|| "Llama server is not running".to_string())?
     };
 
@@ -120,7 +121,7 @@ pub async fn llama_generate<R: Runtime>(
     // Register this generation as not-aborted.
     {
         let registry = app.state::<AbortRegistry>();
-        let mut map  = registry.lock().map_err(|e| e.to_string())?;
+        let mut map = registry.lock().map_err(|e| e.to_string())?;
         map.insert(gen_id.clone(), false);
     }
 
@@ -136,7 +137,7 @@ pub async fn llama_generate<R: Runtime>(
     // output shape, so adding response_format on top is redundant and can
     // confuse some llama.cpp builds. Only add response_format when there
     // is no grammar.
-if let Some(schema) = request.json_schema {
+    if let Some(schema) = request.json_schema {
         body["response_format"] = serde_json::json!({
             "type":        "json_schema",
             "json_schema": { "name": "response", "schema": schema },
@@ -148,13 +149,16 @@ if let Some(schema) = request.json_schema {
     let app_for_spawn = app.clone();
     let gen_id_for_spawn = gen_id.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = stream_generation(
-            app_for_spawn.clone(), port, gen_id_for_spawn.clone(), body
-        ).await {
-            let _ = app_for_spawn.emit("llama:generation-error", GenerationErrorEvent {
-                generation_id: gen_id_for_spawn.clone(),
-                error: e,
-            });
+        if let Err(e) =
+            stream_generation(app_for_spawn.clone(), port, gen_id_for_spawn.clone(), body).await
+        {
+            let _ = app_for_spawn.emit(
+                "llama:generation-error",
+                GenerationErrorEvent {
+                    generation_id: gen_id_for_spawn.clone(),
+                    error: e,
+                },
+            );
         }
 
         // Clean up abort registry entry.
@@ -192,11 +196,11 @@ async fn stream_generation<R: Runtime>(
     }
 
     let mut stream = response.bytes_stream();
-    let mut full_text        = String::new();
-    let mut prompt_tokens    = 0u32;
+    let mut full_text = String::new();
+    let mut prompt_tokens = 0u32;
     let mut completion_tokens = 0u32;
-    let mut finish_reason    = "stop".to_string();
-    let mut buffer           = String::new();
+    let mut finish_reason = "stop".to_string();
+    let mut buffer = String::new();
 
     while let Some(chunk) = stream.next().await {
         // Check abort flag before processing each chunk.
@@ -211,13 +215,13 @@ async fn stream_generation<R: Runtime>(
         }
 
         let chunk = chunk.map_err(|e| format!("Stream error: {e}"))?;
-        let text  = String::from_utf8_lossy(&chunk);
+        let text = String::from_utf8_lossy(&chunk);
         buffer.push_str(&text);
 
         // SSE lines arrive as "data: {...}\n\n" — process complete lines.
         while let Some(newline_pos) = buffer.find('\n') {
             let line = buffer[..newline_pos].trim().to_string();
-            buffer   = buffer[newline_pos + 1..].to_string();
+            buffer = buffer[newline_pos + 1..].to_string();
 
             if line.is_empty() || line == "data: [DONE]" {
                 continue;
@@ -236,16 +240,19 @@ async fn stream_generation<R: Runtime>(
 
             if !delta.is_empty() {
                 full_text.push_str(&delta);
-                let _ = app.emit("llama:token", TokenEvent {
-                    generation_id: gen_id.clone(),
-                    delta:         delta.clone(),
-                    done:          false,
-                });
+                let _ = app.emit(
+                    "llama:token",
+                    TokenEvent {
+                        generation_id: gen_id.clone(),
+                        delta: delta.clone(),
+                        done: false,
+                    },
+                );
             }
 
             // Extract usage stats when present (typically in the last chunk).
             if let Some(usage) = parsed.get("usage") {
-                prompt_tokens     = usage["prompt_tokens"].as_u64().unwrap_or(0) as u32;
+                prompt_tokens = usage["prompt_tokens"].as_u64().unwrap_or(0) as u32;
                 completion_tokens = usage["completion_tokens"].as_u64().unwrap_or(0) as u32;
             }
 
@@ -258,18 +265,24 @@ async fn stream_generation<R: Runtime>(
     }
 
     // Emit final sentinel token event, then the done event.
-    let _ = app.emit("llama:token", TokenEvent {
-        generation_id: gen_id.clone(),
-        delta:         String::new(),
-        done:          true,
-    });
-    let _ = app.emit("llama:generation-done", GenerationDoneEvent {
-        generation_id: gen_id,
-        full_text,
-        prompt_tokens,
-        completion_tokens,
-        finish_reason,
-    });
+    let _ = app.emit(
+        "llama:token",
+        TokenEvent {
+            generation_id: gen_id.clone(),
+            delta: String::new(),
+            done: true,
+        },
+    );
+    let _ = app.emit(
+        "llama:generation-done",
+        GenerationDoneEvent {
+            generation_id: gen_id,
+            full_text,
+            prompt_tokens,
+            completion_tokens,
+            finish_reason,
+        },
+    );
 
     Ok(())
 }
@@ -282,7 +295,7 @@ pub fn llama_abort_generation<R: Runtime>(
     generation_id: String,
 ) -> Result<(), String> {
     let registry = app.state::<AbortRegistry>();
-    let mut map  = registry.lock().map_err(|e| e.to_string())?;
+    let mut map = registry.lock().map_err(|e| e.to_string())?;
     if let Some(flag) = map.get_mut(&generation_id) {
         *flag = true;
     }

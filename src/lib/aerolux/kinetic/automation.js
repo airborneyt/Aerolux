@@ -151,7 +151,7 @@ export function integrateAutomationLane(lane, t, fallbackRate) {
 
 /**
     builds the resolveParam(key, t) function passed into every node's
-    createField. dalls back to the plain static param value whenever that key
+    createField. falls back to the plain static param value whenever that key
     has no automation lane (or an empty one), so a param with automation and a
     param without look identical to a node that doesn't care about the
     distinction.

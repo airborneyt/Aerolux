@@ -29,43 +29,102 @@
 import { addNode } from '../../stores/kinetic.svelte.js';
 import { NODE_DEFS } from '../../lib/aerolux/kinetic/nodeRegistry.js';
 import { nodeDragGhost, startNodeDrag, updateNodeDrag, endNodeDrag } from '../../stores/kineticUiSignals.svelte.js';
+import { hapticConfirm } from '../../lib/aerolux/haptics.js';
 
 const DRAG_THRESHOLD_PX = 4;
 
-const CATEGORY_LABELS = {
-    generator:  'Generators',
-    transform:  'Transforms',
-    colour:     'Colour',
-    temporal:   'Temporal',
-    utility:    'Utility',
-    simulation: 'Simulation',
-};
-const CATEGORY_ORDER = ['generator', 'transform', 'colour', 'temporal', 'simulation', 'utility'];
+const CATEGORY_STRUCTURE = [
+    {
+        id: 'generator', label: 'Generators',
+        subcategories: [
+            { id: 'shape', label: 'Shapes' },
+        ],
+    },
+    {   
+        id: 'transform', label: 'Transforms',
+    },
+    {   
+        id: 'colour', label: 'Colour',
+    },
+    {
+        id: 'temporal', label: 'Temporal',
+    },
+    {
+        id: 'simulation', label: 'Simulations',
+    },
+    {
+        id: 'modifier', label: 'Modifiers',
+    },
+    {
+        id: 'utility', label: 'Utility'
+    },
+]
 
 let query = $state('');
-let expanded = $state(new Set(CATEGORY_ORDER)); // all expanded by default
+let expanded = $state(new Set(CATEGORY_STRUCTURE.map(category => category.id)));
+let expandedSubcategories = $state(
+    new Set(
+        CATEGORY_STRUCTURE.flatMap(category =>
+            category.subcategories?.map(subcategory =>
+                `${category.id}:${subcategory.id}`
+            )
+        )
+    )
+);
 
 const visibleDefs = $derived.by(() => {
     const q = query.trim().toLowerCase();
     return Object.values(NODE_DEFS)
         .filter(d => !d.internal)
-        .filter(d => !q || d.label.toLowerCase().includes(q) || d.category.toLowerCase().includes(q));
+        .filter(d => !q || d.label.toLowerCase().includes(q) || d.category.toLowerCase().includes(q) || d.subcategory?.toLowerCase().includes(q));
 });
 
 const grouped = $derived.by(() => {
-    const byCat = new Map();
-    for (const cat of CATEGORY_ORDER) byCat.set(cat, []);
-    for (const def of visibleDefs) {
-        if (!byCat.has(def.category)) byCat.set(def.category, []);
-        byCat.get(def.category).push(def);
+    const result = new Map();
+    for (const category of CATEGORY_STRUCTURE) {
+        result.set(category.id, {
+            directNodes: [],
+            subcategories: new Map(
+                category.subcategories?.map(subcategory => [
+                    subcategory.id,
+                    []
+                ])
+            )
+        });
     }
-    return byCat;
+    for (const def of visibleDefs) {
+        if (!result.has(def.category)) {
+            result.set(def.category, {
+                directNodes: [],
+                subcategories: new Map()
+            });
+        }
+        const category = result.get(def.category);
+        if (def.subcategory) {
+            if (!category.subcategories.has(def.subcategory)) {
+                category.subcategories.set(def.subcategory, []);
+            }
+            category.subcategories
+                .get(def.subcategory)
+                .push(def);
+        } else {
+            category.directNodes.push(def);
+        }
+    }
+    return result;
 });
 
 function toggleCategory(cat) {
     const next = new Set(expanded);
     next.has(cat) ? next.delete(cat) : next.add(cat);
     expanded = next;
+}
+
+function toggleSubcategory(categoryId, subcategoryId) {
+    const key = `${categoryId}:${subcategoryId}`;
+    const next = new Set(expandedSubcategories);
+    next.has(key) ? next.delete(key) : next.add(key);
+    expandedSubcategories = next;
 }
 
 function defaultParamsFor(def) {
@@ -75,6 +134,7 @@ function defaultParamsFor(def) {
 }
 
 function handleAdd(def) {
+    hapticConfirm();
     addNode(def.id, defaultParamsFor(def));
 }
 
@@ -116,30 +176,76 @@ function onItemPointerUp(e) {
     </div>
 
     <div class="nm-list">
-        {#each CATEGORY_ORDER as cat}
-            {@const defs = grouped.get(cat) ?? []}
-            {#if defs.length}
+        {#each CATEGORY_STRUCTURE as category}
+            {@const group = grouped.get(category.id)}
+            {@const directNodes = group?.directNodes ?? []}
+            {@const subcategories = group?.subcategories ?? new Map()}
+
+            {@const categoryNodeCount =
+                directNodes.length +
+                [...subcategories.values()]
+                    .reduce((total, defs) => total + defs.length, 0)
+            }
+
+            {#if categoryNodeCount > 0}
                 <div class="nm-category">
-                    <button class="nm-category-header" onclick={() => toggleCategory(cat)}>
-                        <span class="nm-category-chevron">{expanded.has(cat) ? '▾' : '▸'}</span>
-                        <span>{CATEGORY_LABELS[cat] ?? cat}</span>
-                        <span class="nm-category-count">{defs.length}</span>
+                    <button class="nm-category-header" onclick={() => toggleCategory(category.id)} >
+                        <span class="nm-category-chevron">{expanded.has(category.id) ? '▼' : '▶︎'}</span>
+                        <span>{category.label}</span>
+                        <span class="nm-category-count">{categoryNodeCount}</span>
                     </button>
-                    {#if expanded.has(cat)}
-                        <div class="nm-items">
-                            {#each defs as def}
-                                <button
-                                    class="nm-item"
-                                    style="--nc:{def.color}"
-                                    onpointerdown={e => onItemPointerDown(e, def)}
-                                    onclick={() => handleAdd(def)}
-                                    title="{def.hint ?? def.label}"
-                                >
-                                    <span class="nm-item-icon">{def.icon}</span>
-                                    <span class="nm-item-label">{def.label}</span>
-                                </button>
-                            {/each}
-                        </div>
+                    {#if expanded.has(category.id)}
+                        <!-- Nodes directly inside this category -->
+                        {#if directNodes.length}
+                            <div class="nm-items nm-direct-items">
+                                {#each directNodes as def}
+                                    <button
+                                        class="nm-item"
+                                        style="--nc:{def.color}"
+                                        onpointerdown={e => onItemPointerDown(e, def)}
+                                        onclick={() => handleAdd(def)}
+                                        title={def.hint ?? def.label}
+                                    >
+                                        <span class="nm-item-icon">{def.icon}</span>
+                                        <span class="nm-item-label">{def.label}</span>
+                                    </button>
+                                {/each}
+                            </div>
+                        {/if}
+                        <!-- Subcategories -->
+                        {#each category.subcategories as subcategory}
+                            {@const defs = subcategories.get(subcategory.id) ?? []}
+                            {#if defs.length}
+                                {@const subcategoryKey = `${category.id}:${subcategory.id}`}
+                                <div class="nm-subcategory">
+                                    <button
+                                        class="nm-subcategory-header"
+                                        onclick={() => toggleSubcategory(category.id, subcategory.id)}
+                                    >
+                                        <span class="nm-subcategory-chevron">{expandedSubcategories.has(subcategoryKey) ? '▼' : '▶︎'}</span>
+                                        <span>{subcategory.label}</span>
+                                        <span class="nm-subcategory-count">{defs.length}</span>
+                                    </button>
+                                    {#if expandedSubcategories.has(subcategoryKey)}
+                                        <div class="nm-items">
+                                            {#each defs as def}
+                                                <button
+                                                    class="nm-item"
+                                                    style="--nc:{def.color}"
+                                                    onpointerdown={e => onItemPointerDown(e, def)}
+                                                    onclick={() => handleAdd(def)}
+                                                    title={def.hint ?? def.label}
+                                                >
+                                                    <span class="nm-item-icon">{def.icon}</span>
+                                                    <span class="nm-item-label">{def.label}</span>
+                                                </button>
+                                            {/each}
+                                        </div>
+                                    {/if}
+
+                                </div>
+                            {/if}
+                        {/each}
                     {/if}
                 </div>
             {/if}
@@ -162,10 +268,23 @@ function onItemPointerUp(e) {
     color:var(--color-text-secondary); font-size:11px; font-weight:600;
     text-transform:uppercase; letter-spacing:0.06em; cursor:pointer;
     border-radius:var(--radius-sm); font-family:inherit;
+    user-select: none; -webkit-user-select: none;
 }
 .nm-category-header:hover { background:var(--color-surface-2); color:var(--color-text); }
 .nm-category-chevron      { font-size:9px; width:10px; color:var(--color-text-dim); }
 .nm-category-count        { margin-left:auto; font-size:10px; color:var(--color-text-dim); font-family:'Geist Mono',monospace; }
+
+.nm-subcategory { margin-bottom: 2px; }
+.nm-subcategory-header {
+    display: flex; align-items: center; gap: 5px; width: 100%;
+    padding: 4px 8px 4px 18px; background: transparent; border: none; border-radius: var(--radius-sm);
+    color: var(--color-text-dim); font-family: inherit; font-size: 10px; font-weight: 500;
+    cursor: pointer; text-align: left;
+    user-select: none; -webkit-user-select: none;
+}
+.nm-subcategory-header:hover { background: var(--color-surface-2); color: var(--color-text-secondary); }
+.nm-subcategory-chevron { width: 8px; font-size: 7px; }
+.nm-subcategory-count { margin-left: auto; color: var(--color-text-dim); font-family: 'Geist Mono', monospace; font-size: 9px; }
 
 .nm-items { display:flex; flex-direction:column; gap:2px; padding-left:6px; margin-bottom:6px; }
 .nm-item {
@@ -174,7 +293,9 @@ function onItemPointerUp(e) {
     border-radius:var(--radius-sm); cursor:grab; text-align:left;
     color:var(--color-text-secondary); font-size:12px; font-family:inherit;
     transition:background var(--duration-fast) var(--ease-smooth), border-color var(--duration-fast) var(--ease-smooth);
+    user-select: none; -webkit-user-select: none;
 }
+.nm-subcategory .nm-items { padding-left: 20px; }
 .nm-item:active { cursor:grabbing; }
 .nm-item:hover { background:var(--color-surface-2); border-color:var(--color-border); color:var(--color-text); }
 .nm-item-icon  { width:16px; text-align:center; color:var(--nc); flex-shrink:0; }

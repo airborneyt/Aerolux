@@ -34,9 +34,9 @@ const showSliders = $derived(editor.envelope.shape !== 'none');
 </script>
 
 <div class="al-card al-settings-card">
-    <p class="al-label">Steps <span class="al-dim">(max 16)</span></p>
+    <p class="al-label">Steps <span class="al-dim">(max 32)</span></p>
     <div class="al-range-row">
-        <input type="range" min="2" max="16" step="1" bind:value={editor.steps} />
+        <input type="range" min="2" max="32" step="1" bind:value={editor.steps} />
         <span class="al-val">{editor.steps}</span>
     </div>
 

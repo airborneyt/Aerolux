@@ -52,7 +52,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 const LLAMA_CPP_TAG: &str = "b9740";
 
 // ── model source (Hugging Face, ggml-org first-party GGUF release) ──
-const HF_MODEL_BASE: &str = "https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF/resolve/main";
+const HF_MODEL_BASE: &str = "https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF/resolve/main";
 // NOTE: exact filenames on the HF repo were not directly re-verified
 // in this session — confirmed only via earlier general search results
 // referencing this collection's existence and naming convention. Spot
@@ -60,13 +60,13 @@ const HF_MODEL_BASE: &str = "https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF
 // wrong, download_llama_model will fail loudly with an HTTP error
 // rather than silently producing a bad file, so this is a "verify
 // before ship" item, not a silent-failure risk like the CUDA case.
-const MODEL_FILENAME:  &str = "gemma-4-E4B-it-Q4_K_M.gguf";
-const MMPROJ_FILENAME: &str = "mmproj-gemma-4-E4B-it-Q8_0.gguf";
+const MODEL_FILENAME: &str = "gemma-4-E2B-it-Q4_0.gguf";
+const MMPROJ_FILENAME: &str = "mmproj-gemma-4-E2B-it-Q8_0.gguf";
 
 #[derive(serde::Serialize, Clone)]
 pub struct LlamaPaths {
     pub binary_path: Option<String>,
-    pub model_path:  Option<String>,
+    pub model_path: Option<String>,
     pub mmproj_path: Option<String>,
 }
 
@@ -74,20 +74,40 @@ pub struct LlamaPaths {
 // page for tag b9740 — see naming pattern, not just this one tag) ───
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum ArchiveKind { TarGz, Zip }
+enum ArchiveKind {
+    TarGz,
+    Zip,
+}
 
 fn binary_asset() -> Result<(String, ArchiveKind), String> {
     let combo = (std::env::consts::OS, std::env::consts::ARCH);
     let (filename, kind) = match combo {
-        ("macos", "aarch64") => (format!("llama-{LLAMA_CPP_TAG}-bin-macos-arm64.tar.gz"), ArchiveKind::TarGz),
-        ("macos", "x86_64")  => (format!("llama-{LLAMA_CPP_TAG}-bin-macos-x64.tar.gz"), ArchiveKind::TarGz),
-        ("windows", "x86_64") => (format!("llama-{LLAMA_CPP_TAG}-bin-win-vulkan-x64.zip"), ArchiveKind::Zip),
-        ("linux", "x86_64")   => (format!("llama-{LLAMA_CPP_TAG}-bin-ubuntu-vulkan-x64.tar.gz"), ArchiveKind::TarGz),
-        ("linux", "aarch64")  => (format!("llama-{LLAMA_CPP_TAG}-bin-ubuntu-vulkan-arm64.tar.gz"), ArchiveKind::TarGz),
-        _ => return Err(format!(
-            "No supported llama-server build for OS={}, ARCH={}",
-            combo.0, combo.1
-        )),
+        ("macos", "aarch64") => (
+            format!("llama-{LLAMA_CPP_TAG}-bin-macos-arm64.tar.gz"),
+            ArchiveKind::TarGz,
+        ),
+        ("macos", "x86_64") => (
+            format!("llama-{LLAMA_CPP_TAG}-bin-macos-x64.tar.gz"),
+            ArchiveKind::TarGz,
+        ),
+        ("windows", "x86_64") => (
+            format!("llama-{LLAMA_CPP_TAG}-bin-win-vulkan-x64.zip"),
+            ArchiveKind::Zip,
+        ),
+        ("linux", "x86_64") => (
+            format!("llama-{LLAMA_CPP_TAG}-bin-ubuntu-vulkan-x64.tar.gz"),
+            ArchiveKind::TarGz,
+        ),
+        ("linux", "aarch64") => (
+            format!("llama-{LLAMA_CPP_TAG}-bin-ubuntu-vulkan-arm64.tar.gz"),
+            ArchiveKind::TarGz,
+        ),
+        _ => {
+            return Err(format!(
+                "No supported llama-server build for OS={}, ARCH={}",
+                combo.0, combo.1
+            ))
+        }
     };
     Ok((filename, kind))
 }
@@ -95,7 +115,9 @@ fn binary_asset() -> Result<(String, ArchiveKind), String> {
 fn binary_asset_url() -> Result<(String, ArchiveKind), String> {
     let (filename, kind) = binary_asset()?;
     Ok((
-        format!("https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA_CPP_TAG}/{filename}"),
+        format!(
+            "https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA_CPP_TAG}/{filename}"
+        ),
         kind,
     ))
 }
@@ -103,19 +125,31 @@ fn binary_asset_url() -> Result<(String, ArchiveKind), String> {
 // ── paths ────────────────────────────────────────────────────────────
 
 fn bin_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("bin");
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("bin");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
 }
 
 fn models_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("models");
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("models");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
 }
 
 fn binary_filename() -> &'static str {
-    if cfg!(target_os = "windows") { "llama-server.exe" } else { "llama-server" }
+    if cfg!(target_os = "windows") {
+        "llama-server.exe"
+    } else {
+        "llama-server"
+    }
 }
 
 #[tauri::command]
@@ -129,13 +163,17 @@ pub fn get_llama_paths<R: Runtime>(app: AppHandle<R>) -> Result<LlamaPaths, Stri
     let bin_root = bin_dir(&app)?;
     let bin_path = find_extracted_binary(&bin_root, binary_filename());
 
-    let model_path  = models_dir(&app)?.join(MODEL_FILENAME);
+    let model_path = models_dir(&app)?.join(MODEL_FILENAME);
     let mmproj_path = models_dir(&app)?.join(MMPROJ_FILENAME);
 
     Ok(LlamaPaths {
-        binary_path:  bin_path.map(|p| p.to_string_lossy().to_string()),
-        model_path:   model_path.exists().then(|| model_path.to_string_lossy().to_string()),
-        mmproj_path:  mmproj_path.exists().then(|| mmproj_path.to_string_lossy().to_string()),
+        binary_path: bin_path.map(|p| p.to_string_lossy().to_string()),
+        model_path: model_path
+            .exists()
+            .then(|| model_path.to_string_lossy().to_string()),
+        mmproj_path: mmproj_path
+            .exists()
+            .then(|| mmproj_path.to_string_lossy().to_string()),
     })
 }
 
@@ -157,7 +195,10 @@ async fn download_with_progress<R: Runtime>(
     let response = client.get(url).send().await.map_err(|e| e.to_string())?;
 
     if !response.status().is_success() {
-        return Err(format!("Download failed for {target}: HTTP {} ({url})", response.status()));
+        return Err(format!(
+            "Download failed for {target}: HTTP {} ({url})",
+            response.status()
+        ));
     }
 
     let total_size = response.content_length().unwrap_or(0);
@@ -182,16 +223,22 @@ async fn download_with_progress<R: Runtime>(
         // emit when the integer percentage actually changes.
         if pct != last_emitted_pct {
             last_emitted_pct = pct;
-            let _ = app.emit("llama:download-progress", serde_json::json!({
-                "target":     target,
-                "downloaded": downloaded,
-                "total":      total_size,
-                "percent":    pct,
-            }));
+            let _ = app.emit(
+                "llama:download-progress",
+                serde_json::json!({
+                    "target":     target,
+                    "downloaded": downloaded,
+                    "total":      total_size,
+                    "percent":    pct,
+                }),
+            );
         }
     }
 
-    let _ = app.emit("llama:download-complete", serde_json::json!({ "target": target }));
+    let _ = app.emit(
+        "llama:download-complete",
+        serde_json::json!({ "target": target }),
+    );
     Ok(())
 }
 
@@ -265,18 +312,24 @@ pub async fn download_llama_binary<R: Runtime>(app: AppHandle<R>) -> Result<Stri
     let (url, kind) = binary_asset_url()?;
     let bin_destination_dir = bin_dir(&app)?;
 
-    let archive_ext = match kind { ArchiveKind::TarGz => "tar.gz", ArchiveKind::Zip => "zip" };
+    let archive_ext = match kind {
+        ArchiveKind::TarGz => "tar.gz",
+        ArchiveKind::Zip => "zip",
+    };
     let archive_path = bin_destination_dir.join(format!("download.{archive_ext}"));
 
     download_with_progress(&app, &url, &archive_path, "binary").await?;
 
-    let _ = app.emit("llama:download-progress", serde_json::json!({
-        "target": "binary", "percent": 100, "extracting": true,
-    }));
+    let _ = app.emit(
+        "llama:download-progress",
+        serde_json::json!({
+            "target": "binary", "percent": 100, "extracting": true,
+        }),
+    );
 
     match kind {
         ArchiveKind::TarGz => extract_tar_gz(&archive_path, &bin_destination_dir)?,
-        ArchiveKind::Zip   => extract_zip(&archive_path, &bin_destination_dir)?,
+        ArchiveKind::Zip => extract_zip(&archive_path, &bin_destination_dir)?,
     }
 
     let _ = fs::remove_file(&archive_path); // archive itself is no longer needed once extracted
@@ -314,10 +367,12 @@ pub async fn download_llama_binary<R: Runtime>(app: AppHandle<R>) -> Result<Stri
 }
 
 #[tauri::command]
-pub async fn download_llama_model<R: Runtime>(app: AppHandle<R>) -> Result<(String, String), String> {
-    let model_url   = format!("{HF_MODEL_BASE}/{MODEL_FILENAME}");
-    let mmproj_url  = format!("{HF_MODEL_BASE}/{MMPROJ_FILENAME}");
-    let model_dest  = models_dir(&app)?.join(MODEL_FILENAME);
+pub async fn download_llama_model<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<(String, String), String> {
+    let model_url = format!("{HF_MODEL_BASE}/{MODEL_FILENAME}");
+    let mmproj_url = format!("{HF_MODEL_BASE}/{MMPROJ_FILENAME}");
+    let model_dest = models_dir(&app)?.join(MODEL_FILENAME);
     let mmproj_dest = models_dir(&app)?.join(MMPROJ_FILENAME);
 
     download_with_progress(&app, &model_url, &model_dest, "model").await?;

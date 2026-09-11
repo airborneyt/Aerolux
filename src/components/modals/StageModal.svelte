@@ -21,14 +21,15 @@
 <script>
 import {
     kinetic, addDevice, removeDevice, setPrimaryDevice, updateDevice, deviceLabel, pushKineticUndo,
-    connectDeviceOutput, disconnectDeviceOutput,
+    connectDeviceOutput, disconnectDeviceOutput, setDeviceDisplayMode,
 } from '../../stores/kinetic.svelte.js';
 import { showToast } from '../../lib/aerolux/toast.js';
 import { invoke } from '@tauri-apps/api/core';
 import { kineticPreview } from '../../stores/kineticPreview.svelte.js';
 import { computeAutoPosition, DEVICE_FOOTPRINT } from '../../lib/aerolux/kinetic/devicePlacement.js';
 import { getDeviceGrid } from '../../lib/aerolux/kinetic/sampleDevice.js';
-import { LIVE_PUSH_RATE_PRESETS, getLivePushRateHz, setLivePushRateHz } from '../../lib/aerolux/kinetic/livePush.js';
+import { LIVE_PUSH_RATE_PRESETS, getLivePushRateHz, setLivePushRateHz, invalidateDeviceAddresses } from '../../lib/aerolux/kinetic/livePush.js';
+import { hapticSnap } from '../../lib/aerolux/haptics.js'
 
 let pushRateHz = $state(getLivePushRateHz());
 function onPushRateChange(hz) {
@@ -42,6 +43,7 @@ let { open = $bindable(false) } = $props();
 const SCALE = 16; // px per canvas unit, for the stage's own mini-map
 const ROTATE_CYCLE = { 0: 90, 90: 180, 180: 270, 270: 0 };
 const MINI_GRID_SIZE = 10; // matches the shared grid's x/y range (0..9 on each axis)
+const GRID_SIZE = 1; // canvas units, for snapping to grid when dragging devices
 
 function footprintFor(device) {
     return (device.rotation === 90 || device.rotation === 270)
@@ -59,6 +61,11 @@ const gridIndex = (() => {
 
 // drag to reposition –––––––––––––––––––––––––––––––––––––––––––––––
 let dragging = null;
+let lastSnapPoint = null;
+
+function snapToGrid(value) {
+    return Math.round(value / GRID_SIZE) * GRID_SIZE
+}
 
 function onDevicePointerDown(e, device) {
     e.stopPropagation();
@@ -74,11 +81,21 @@ function onDevicePointerDown(e, device) {
 }
 function onDragMove(e) {
     if (!dragging) return;
-    const dx = (e.clientX - dragging.startX) / SCALE;
-    const dy = (e.clientY - dragging.startY) / SCALE;
+    const rawDx = (e.clientX - dragging.startX) / SCALE;
+    const rawDy = (e.clientY - dragging.startY) / SCALE;
+    // shift = free movement
+    const dx = e.shiftKey ? rawDx : snapToGrid(rawDx);
+    const dy = e.shiftKey ? rawDy : snapToGrid(rawDy);
     updateDevice(dragging.deviceId, {
         position: { x: dragging.origX + dx, y: dragging.origY + dy },
     });
+    if (!e.shiftKey) {
+        const snapPoint = `${dragging.origX + dx},${dragging.origY + dy}`;
+        if (snapPoint !== lastSnapPoint) {
+            hapticSnap();
+            lastSnapPoint = snapPoint;
+        }
+    }
 }
 function onDragUp() {
     dragging = null;
@@ -108,6 +125,15 @@ async function refreshPorts() {
     }
 }
 
+let lastPortRefreshAt = 0;
+$effect(() => {
+    if (!open) return;
+    const now = Date.now();
+    if (now - lastPortRefreshAt < 500) return;
+    lastPortRefreshAt = now;
+    refreshPorts();
+});
+
 async function handlePortChange(device, portName) {
     if (!portName) {
         await disconnectDeviceOutput(device.id);
@@ -123,6 +149,12 @@ async function handlePortChange(device, portName) {
 function handleRemove(deviceId) {
     if (kinetic.devices.length <= 1) return; // always keep at least one device
     removeDevice(deviceId);
+}
+
+// display mode (palette-quantised vs full sysex)
+function handleDisplayModeChange(device, mode) {
+    pushKineticUndo();
+    setDeviceDisplayMode(device.id, mode);
 }
 
 // mini preview grid ––––––––––––––––––––––––––––––––––––––––––––––––
@@ -143,7 +175,6 @@ function padColour(frame, sysexPad) {
 </script>
 
 {#if open}
-{refreshPorts()}
 <div class="stg-overlay" onclick={() => open = false}>
     <div class="stg-modal" onclick={e => e.stopPropagation()}>
         <div class="stg-header">
@@ -209,15 +240,15 @@ function padColour(frame, sysexPad) {
                         <label class="stg-logomode" title="Logo and mode both render live in preview; this picks which one gets exported.">
                             <span class="al-dim" style="font-size:10px">Export:</span>
                             <select class="al-select stg-logomode-select" value={device.logoOrMode}
-                                onchange={e => { pushKineticUndo(); updateDevice(device.id, { logoOrMode: e.target.value }); }}>
+                                onchange={e => { pushKineticUndo(); invalidateDeviceAddresses(device.id); updateDevice(device.id, { logoOrMode: e.target.value }); }}>
                                 <option value="logo">Logo</option>
                                 <option value="mode">Mode</option>
                             </select>
                         </label>
-                        <label class="stg-logomode" title="Palette snaps colours to the app's 128-colour palette for visual consistency. Sysex sends full 262,144-colour RGB directly to hardware.">
+                        <label class="stg-logomode" title="Palette snaps colours to the app's 128-colour palette for visual consistency (quantized in Rust). Sysex sends full 262,144-colour RGB directly to hardware.">
                             <span class="al-dim" style="font-size:10px">Display:</span>
                             <select class="al-select stg-logomode-select" value={device.displayMode}
-                                onchange={e => { pushKineticUndo(); updateDevice(device.id, { displayMode: e.target.value }); }}>
+                                onchange={e => handleDisplayModeChange(device, e.target.value)}>
                                 <option value="palette">Palette</option>
                                 <option value="sysex">Sysex (full colour)</option>
                             </select>
@@ -246,7 +277,7 @@ function padColour(frame, sysexPad) {
             <span class="al-dim" style="font-size:11px;margin-right:auto">
                 {kinetic.devices.length} device{kinetic.devices.length === 1 ? '' : 's'}
             </span>
-            <label class="stg-logomode" title="How often live-connected devices are pushed to real hardware. Independent of preview/render rate.">
+            <label class="stg-logomode" title="How often the JS sampling loop resamples and pushes to real hardware. Independent of preview/render rate.">
                 <span class="al-dim" style="font-size:10px">Push rate:</span>
                 <select class="al-select stg-logomode-select" value={pushRateHz}
                     onchange={e => onPushRateChange(parseInt(e.target.value))}>
@@ -269,6 +300,7 @@ function padColour(frame, sysexPad) {
     backdrop-filter: blur(10px) saturate(1.2);
     -webkit-backdrop-filter: blur(10px) saturate(1.2);
     animation: al-overlay-in var(--duration-enter) var(--ease-out) both;
+    user-select: none; -webkit-user-select: none;
 }
 .stg-modal {
     background: var(--color-glass-modal);
@@ -283,13 +315,13 @@ function padColour(frame, sysexPad) {
     box-shadow: var(--shadow-modal);
     animation: al-modal-in var(--duration-enter) var(--ease-spring) both;
 }
-.stg-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-2); }
-.stg-title  { font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); }
+.stg-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-2); user-select: none; -webkit-user-select: none; }
+.stg-title  { font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); user-select: none; -webkit-user-select: none; }
 
 .stg-canvas-wrap {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
-    background: rgba(6,8,18,0.6);
+    background: var(--color-surface-1);
     overflow: auto;
     margin-bottom: var(--space-4);
     padding: 16px;
@@ -305,7 +337,8 @@ function padColour(frame, sysexPad) {
     flex-direction: column;
     overflow: hidden;
     background: rgba(18,22,40,0.9);
-    user-select: none;
+    user-select: none; 
+    -webkit-user-select: none;
 }
 .stg-device:active { cursor: grabbing; }
 .stg-device.primary { border-color: var(--color-accent); box-shadow: var(--glow-accent); }
@@ -333,6 +366,8 @@ function padColour(frame, sysexPad) {
     padding: 2px 4px;
     background: rgba(0,0,0,0.2);
     display: flex; align-items: center; gap: 3px;
+    transform: translateY(-15px);
+    user-select: none; -webkit-user-select: none;
 }
 .stg-primary-badge { color: var(--color-accent); }
 
@@ -344,7 +379,7 @@ function padColour(frame, sysexPad) {
     border-radius: var(--radius-md);
     background: var(--color-surface-1);
 }
-.stg-device-id { font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
+.stg-device-id { font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); user-select: none; -webkit-user-select: none; }
 .stg-logomode { display: flex; align-items: center; gap: 5px; margin: 0 4px; }
 .stg-logomode-select { width: 68px; height: 26px; font-size: 11px; }
 .stg-device-controls { display: flex; align-items: center; gap: 6px; }

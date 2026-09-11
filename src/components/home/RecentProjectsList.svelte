@@ -85,8 +85,8 @@ function relativeTime(ts) {
     return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-const typeLabel = { velocity: 'Velocity', kinetic: 'Kinetic', combined: 'V + K' };
-const typeIcon  = { velocity: '◈', kinetic: '⟁', combined: '✦' };
+const typeLabel = { velocity: 'Velocity', kinetic: 'Kinetic' };
+const typeIcon  = { velocity: '◈', kinetic: '⟁' };
 
 function handlePin(e, path) {
     e.stopPropagation();
@@ -117,7 +117,7 @@ function handleRemove(e, path) {
                     {#if recent.thumbnail}
                         <img src={recent.thumbnail} alt="" />
                     {:else}
-                        <span class="rpl-thumb-icon">{typeIcon[recent.type] ?? '◇'}</span>
+                        <span class="rpl-thumb-icon">{typeIcon[recent.activeEditor] ?? '◇'}</span>
                     {/if}
                 </div>
 
@@ -127,7 +127,7 @@ function handleRemove(e, path) {
                         {#if missing}<span class="rpl-missing-badge">missing</span>{/if}
                     </div>
                     <div class="rpl-meta">
-                        <span class="rpl-type-pill">{typeLabel[recent.type] ?? recent.type}</span>
+                        <span class="rpl-type-pill">{typeLabel[recent.activeEditor] ?? recent.activeEditor}</span>
                         <span class="al-dim">·</span>
                         <span class="al-dim">
                             {altHeld ? 'Modified' : 'Opened'} {relativeTime(altHeld ? recent.modifiedAt : recent.lastOpenedAt)}

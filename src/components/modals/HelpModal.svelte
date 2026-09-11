@@ -17,7 +17,7 @@ let { open = $bindable(false) } = $props();
         <div class="al-help-grid">
           <div>
           <p class="al-label">Gradient editor</p>
-          <p class="al-help-p">Click the gradient bar to add a stop. Drag markers to reposition. Click a marker to select it (glows white), then click any palette swatch to assign that colour. Position input accepts 0–100%. Minimum 2 stops.</p>
+          <p class="al-help-p">Click the gradient bar to add a stop. Drag markers to reposition. Click a marker to select it (glows white), then click any palette swatch to assign that colour. Position input accepts 0–100%. Minimum 2 stops. To retain compatibility with Eyedrop, ensure your gradient has a maximum of 16 stops.</p>
 
           <p class="al-label">Algorithms</p>
           <p class="al-help-p"><strong>RGB nearest</strong> uses the closest entry in RGB space.<br><strong>Perceptual</strong> uses CIELAB interpolation for visually smooth transitions.<br><strong>HSL path</strong> travels the colour wheel. Shortest ≤180°, Longest >180°.<br><strong>Stepped</strong> utilises hard block cuts at segment midpoints.<br><strong>Vivid</strong> is like Perceptual but prefers the most saturated match.</p>

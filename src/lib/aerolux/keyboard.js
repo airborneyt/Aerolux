@@ -18,7 +18,7 @@ export function initKeyboardShortcuts({
 
     // arrow key swatch navigation
     const typingInText = tag === 'TEXTAREA' ||
-      (tag === 'INPUT' && ['ai-prompt','auto-ai-prompt-input'].includes(document.activeElement.id));
+      (tag === 'INPUT' || tag === 'TEXTAREA' || ['ai-prompt','auto-ai-prompt-input'].includes(document.activeElement.id));
 
     if (!typingInText && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
       e.preventDefault();

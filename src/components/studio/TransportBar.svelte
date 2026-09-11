@@ -8,8 +8,10 @@ import {
     kinetic, play, pause, stopAndRewind, seekTo, nudgePlayhead,
     setBpm, setTimeDiv, setTotalDuration, setLoop,
 } from '../../stores/kinetic.svelte.js';
+import { hapticTick, hapticConfirm } from '../../lib/aerolux/haptics.js';
 
 function togglePlay() {
+    hapticTick();
     kinetic.transport.playing ? pause() : play();
 }
 

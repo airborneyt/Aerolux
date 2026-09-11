@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
+import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig(async () => ({
-  plugins: [svelte()],
+  plugins: [svelte(), tailwindcss()],
 
   // Tauri needs these settings to work correctly
   clearScreen: false,

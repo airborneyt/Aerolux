@@ -836,7 +836,7 @@ onDestroy(() => window.removeEventListener('keydown', onKeyDown));
 </div>
 
 <style>
-.sp-shell { display: flex; height: 100%; overflow: hidden; background: rgba(6,8,20,0.7); }
+.sp-shell { display: flex; height: 100%; overflow: hidden; }
 
 .sp-list        { width: 220px; flex-shrink: 0; overflow-y: auto; border-right: 1px solid var(--color-border); display: flex; flex-direction: column; }
 .sp-list-header { padding: 8px 10px; border-bottom: 1px solid var(--color-border); flex-shrink: 0; }
@@ -872,16 +872,16 @@ onDestroy(() => window.removeEventListener('keydown', onKeyDown));
 
 .sp-canvas-wrap { flex: 1; overflow: auto; position: relative; padding: 8px; min-height: 0; }
 .sp-ruler       { position: relative; height: 16px; }
-.sp-tick-label  { position: absolute; top: 0; font-size: 9px; color: rgba(255,255,255,0.32); font-family: 'Geist Mono', monospace; }
+.sp-tick-label  { position: absolute; top: 0; font-size: 9px; color: var(--color-text); font-family: 'Geist Mono', monospace; }
 
 .sp-canvas    { position: relative; cursor: crosshair; border: 1px solid var(--color-border); display: block; }
 .sp-canvas-bg { fill: rgba(255,255,255,0.012); }
 
-.sp-grid-line       { stroke: rgba(255,255,255,0.035); stroke-width: 1; }
-.sp-grid-line.beat  { stroke: rgba(255,255,255,0.08); }
-.sp-grid-line.bar   { stroke: rgba(255,255,255,0.16); }
-.sp-value-line       { stroke: rgba(255,255,255,0.05); stroke-width: 1; stroke-dasharray: 2 3; }
-.sp-value-label       { font-size: 9px; fill: rgba(255,255,255,0.28); font-family: 'Geist Mono', monospace; }
+.sp-grid-line       { stroke: var(--color-border); stroke-width: 1; }
+.sp-grid-line.beat  { stroke: var(--color-border-bright); }
+.sp-grid-line.bar   { stroke: var(--color-border-input); }
+.sp-value-line       { stroke: var(--color-border); stroke-width: 1; stroke-dasharray: 2 3; }
+.sp-value-label       { font-size: 9px; fill: var(--color-text); font-family: 'Geist Mono', monospace; }
 .sp-playhead   { stroke: var(--color-accent); stroke-width: 1; opacity: 0.8; pointer-events: none; }
 
 .sp-point {

@@ -1,6 +1,6 @@
 {
   "productName": "Aerolux",
-  "version": "2.0.0",
+  "version": "2.0.0-alpha.5",
   "identifier": "com.airborneyt.aerolux",
   "build": {
     "frontendDist": "../dist",
@@ -27,6 +27,7 @@
     }
   },
   "bundle": {
+    "createUpdaterArtifacts": true,
     "active": true,
     "targets": "all",
     "icon": [
@@ -35,6 +36,29 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "dmg": {
+        "background": "assets/downloadbg.png",
+        "appPosition": {
+          "x": 120,
+          "y": 220
+        },
+        "applicationFolderPosition": {
+          "x": 360,
+          "y": 220
+        }
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/airborneyt/Aerolux/releases/latest/download/latest.json"
+      ],
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMzNjNFQTI0QzNBREMwMTMKUldRVHdLM0RKT3Bqd3ltalkzZWQ0OWRwdXcyanhyUXdDL21paUFEU2d5eGFRc0ErRHcyTVVvOXMK"
+    }
   }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "Aerolux"
-version = "2.0.0-alpha.4"
+version = "2.0.0-alpha.5"
 description = "Aerolux by Airborne"
 authors = ["you"]
 license = ""
@@ -39,9 +39,19 @@ futures-util = "0.3"
 rodio = "0.22.2"
 midir = "0.11.0"
 discord-rich-presence = "1.1.0"
+tauri-plugin-drpc = "0.1.4"
+tauri-plugin-opener = "2"
+tauri-plugin-clipboard-manager = "2"
+tokio-tungstenite = "0.24"
+tokio = { version = "1", features = ["net", "sync", "rt-multi-thread", "macros"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 window-vibrancy = "0.7.1"
+cocoa = "0.25"
+objc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 window-vibrancy = "0.7.1"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"

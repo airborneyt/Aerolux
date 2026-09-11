@@ -3,21 +3,32 @@
     houses the velocity/kinetic selector in the home page when creating a new project
 -->
 <script>
-import { newProject } from '../../stores/projects.svelte.js';
-import { navigate } from '../../stores/router.svelte.js';
+import { startNewProject } from '../../lib/aerolux/menu.svelte.js';
 import VelocityPreviewCard from './previews/VelocityPreviewCard.svelte';
 import KineticPreviewCard  from './previews/KineticPreviewCard.svelte';
+import { hapticConfirm } from '../../lib/aerolux/haptics.js';
+import { settings } from '../../stores/settings.svelte.js';
 
 let { open = $bindable(false) } = $props();
+const defaultEditor = $derived(settings.constants?.defaultEditor ?? null);
 
-function choose(type) {
-    console.log("choose", type);
+async function choose(type) {
     open = false;
-    navigate(type === 'velocity' ? 'velocity' : 'kinetic');
-    newProject(type);
+    await startNewProject(type);
 }
 
 function close() { open = false; }
+
+async function handleVelocity() {
+    hapticConfirm();
+    await choose('velocity');
+}
+
+async function handleKinetic() {
+    hapticConfirm();
+    await choose('kinetic');
+}
+
 </script>
 
 {#if open}
@@ -32,7 +43,7 @@ function close() { open = false; }
         <div class="npm-cards">
 
             <!-- Velocity -->
-            <button class="npm-card" onclick={() => choose('velocity')}>
+                <button class="npm-card {defaultEditor === 'velocity' ? 'npm-card-default' : ''}" onclick={handleVelocity}>
                 <div class="npm-card-preview">
                     <VelocityPreviewCard />
                 </div>
@@ -44,7 +55,7 @@ function close() { open = false; }
             </button>
 
             <!-- Kinetic -->
-            <button class="npm-card" onclick={() => navigate('kinetic')}>
+                <button class="npm-card {defaultEditor === 'kinetic' ? 'npm-card-default' : ''}" onclick={handleKinetic}>
                 <div class="npm-card-preview">
                     <KineticPreviewCard />
                 </div>
@@ -75,6 +86,7 @@ function close() { open = false; }
     backdrop-filter:         blur(10px) saturate(1.2);
     -webkit-backdrop-filter: blur(10px) saturate(1.2);
     animation:       al-overlay-in var(--duration-enter) var(--ease-out) both;
+    user-select: none; -webkit-user-select: none;
 }
 
 .npm-modal {
@@ -120,6 +132,7 @@ function close() { open = false; }
     box-shadow:   var(--shadow-card-hover), var(--glow-accent);
     transform:    translateY(-2px);
 }
+.npm-card-default { border-color: var(--color-accent-border); box-shadow: var(--glow-accent); }
 .npm-card:active:not(:disabled) { transform: translateY(0); }
 
 .npm-card-disabled {

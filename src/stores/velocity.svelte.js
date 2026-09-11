@@ -1,10 +1,6 @@
-// src/stores/editor.svelte.js
+// src/stores/velocity.svelte.js
 import { DEFAULT_PALETTE, rgbToLab } from '../lib/aerolux/palette.js';
 import { buildGradient } from '../lib/aerolux/gradient.js';
-
-export let palette = $state(
-  DEFAULT_PALETTE.map((c, i) => ({ i, r: c[0], g: c[1], b: c[2] }))
-);
 
 export const editor = $state({
     palette: DEFAULT_PALETTE.map((c, i) => ({ i, r: c[0], g: c[1], b: c[2] })),
@@ -54,4 +50,25 @@ export function sortStopsInPlace() {
 
 export function invalidatePaletteCache() {
     editor.paletteLabCache = null;
+}
+
+export function resetVelocityState() {
+    editor.palette = DEFAULT_PALETTE.map((c, i) => ({ i, r: c[0], g: c[1], b: c[2] }));
+    editor.paletteLabCache = null;
+    editor.sortMode = 'original';
+    editor.swatchOrder = [];
+
+    editor.stops = [{ id: 0, pos: 0, ci: 1}, { id: 1, pos: 1, ci: 48 }];
+    editor.nextId = 2;
+    editor.selStop = 0;
+    editor.steps = 16;
+    editor.algorithm = 'rgb';
+    editor.easing = 'linear';
+    editor.hslDir = 'shortest';
+    editor.hueShift = 0;
+    editor.antiRepeat = true;
+
+    editor.envelope = { shape: 'none', attack: 0.2, release: 0.2, floor: 0.0 };
+    editor.tint = { ci: null, str: 0, fade: null };
+    editor.pickingTint = false;
 }

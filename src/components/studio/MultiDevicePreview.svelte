@@ -163,14 +163,14 @@ const scale = $derived(computeFitScale(containerW, containerH, bounds.width, bou
 
 .mdp-device-label {
     position:        absolute;
-    left: 0; right: 0; bottom: 0;
+    left: 0; bottom: 0;
     display:         flex;
     align-items:     center;
     justify-content: center;
     gap:             4px;
     padding:         2px 4px;
     background:      rgba(0,0,0,0.2);
-    font-size:       6px;
+    font-size:       8px;
     font-family:     'Geist Mono', monospace;
     color:           rgba(255,255,255,0.75);
     pointer-events:  none;

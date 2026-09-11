@@ -1,5 +1,8 @@
 <!-- src/components/studio/controls/KnobControl.svelte -->
 <script>
+
+import { createDragHaptic } from '../../../lib/aerolux/haptics.js';
+
 let {
     label       = '',
     value       = 0,
@@ -18,6 +21,7 @@ let accumulatedDeg = $state(value);
 let dragging       = $state(false);
 let startY         = 0;
 let startVal       = 0;
+let dragHaptic;
 
 // display value (clamped for non-wrap, free for wrap)
 const displayVal = $derived(
@@ -43,6 +47,7 @@ function startDrag(e) {
     dragging = true;
     startY   = e.clientY;
     startVal = accumulatedDeg;
+    dragHaptic = createDragHaptic(10);
     window.addEventListener('pointermove', onDrag);
     window.addEventListener('pointerup',   endDrag);
     e.preventDefault();
@@ -55,6 +60,7 @@ function onDrag(e) {
     const next  = wrap
         ? startVal + delta
         : Math.max(min, Math.min(max, startVal + delta));
+    dragHaptic?.tick(4);
     accumulatedDeg = next;
     inputStr = displayVal.toFixed(decimals);
     onchange(displayVal);

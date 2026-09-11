@@ -110,7 +110,7 @@ async function browseFolder() {
 }
 
 function onDragover(e) { e.preventDefault(); isDragging = true; }
-function onDragleave() { isDragging = false; }
+function onDragLeave() { isDragging = false; }
 async function onDrop(e) {
     pendingFiles = [];
     e.preventDefault();
@@ -184,7 +184,7 @@ async function confirm() {
                 class="import-dropzone {isDragging ? 'drag-active' : ''}"
                 onclick={browse}
                 ondragover={onDragover}
-                ondragleave={onDragleave}
+                ondragleave={onDragLeave}
                 ondrop={onDrop}
                 role="button"
                 tabindex="0"

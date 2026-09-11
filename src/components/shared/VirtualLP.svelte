@@ -35,13 +35,13 @@ const MODE_RATIO = 0.55;  // mode-light row height as fraction of normal pad hei
 // → padH = (size - 12*GAP - modeGap) / (10 + MODE_RATIO)
 // We set modeGap = GAP*2 for a clear visual separation.
 
-const MODE_GAP = GAP * 2;
+const MODE_GAP = GAP * 4;
 
 function layoutMetrics(sz) {
-    const padH = (sz - (11 * GAP) - MODE_GAP - 0) / (10 + MODE_RATIO);
+    const padH = (sz - (11 * GAP)) / 10;
     const padW = (sz - (11 * GAP)) / 10;
     const modeH = padH * MODE_RATIO;
-    const modeW = padW * MODE_RATIO;
+    const modeW = padW * 0.35;
     return { padW, padH, modeH, modeW };
 }
 
@@ -54,7 +54,7 @@ function cellToPixel(cell, sz) {
         // Mode light row — below display row 9
         // Center horizontally: 10 columns, center at x=4.5
         const px = GAP + 4.97 * (padW + GAP) - modeW / 2;
-        const py = GAP + 10 * (padH + GAP) + MODE_GAP;
+        const py = GAP + 10 * (padH + GAP) - MODE_GAP;
         return { px, py, pw: modeW, ph: modeH };
     }
 

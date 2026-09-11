@@ -42,12 +42,16 @@ const RECENTS_KEY = 'recents';
 
 export const projects = $state({
   currentPath:      null,
-  currentType:      null,   // 'velocity' | 'kinetic' | null
+  activeEditor:      null,   // 'velocity' | 'kinetic' | null
   currentName:      'Untitled',
   currentCreatedAt: null,    // preserved across re-saves; set on new/open
   isDirty:          false,
   recents:          [],      // hydrated by loadRecents()
 });
+
+// State replacement during project deserialization is expected and must not
+// be mistaken for a user edit by the reactive editor change detectors.
+let loadingProject = false;
 
 // dirty tracking ────────────────────────────────────────────────────
 // subscribes once to the shared emitter. any meaningful Velocity edit
@@ -63,29 +67,25 @@ export const projects = $state({
 // limbo with nothing to save, recover, or warn about on quit.
 
 emitter.on('gradient:change', () => {
-  if (projects.currentType === null) {
-    projects.currentType      = 'velocity';
+  if (loadingProject) return;
+  if (projects.activeEditor === null) {
+    projects.activeEditor     = 'velocity';
     projects.currentPath      = null;
     projects.currentName      = 'Untitled';
     projects.currentCreatedAt = null;
   }
-
-  if (projects.currentType === 'velocity' || projects.currentType === 'kinetic') {
-    projects.isDirty = true;
-  }
+  projects.isDirty = true;
 });
 
 emitter.on('kinetic:change', () => {
-  if (projects.currentType === null) {
-    projects.currentType      = 'kinetic';
+  if (loadingProject) return;
+  if (projects.activeEditor === null) {
+    projects.activeEditor     = 'kinetic';
     projects.currentPath      = null;
     projects.currentName      = 'Untitled';
     projects.currentCreatedAt = null;
   }
-
-  if (projects.currentType === 'velocity' || projects.currentType === 'kinetic') {
-    projects.isDirty = true;
-  }
+  projects.isDirty = true;
 });
 
 // recents ───────────────────────────────────────────────────────────
@@ -105,18 +105,18 @@ async function persistRecents() {
  * adds or updates a recents entry for the given path, then evicts the
  * oldest unpinned entries beyond the configured soft cap.
  */
-async function upsertRecent({ path, name, type, thumbnail, touchModified }) {
+async function upsertRecent({ path, name, activeEditor, thumbnail, touchModified }) {
   const now = Date.now();
   const existingIdx = projects.recents.findIndex(r => r.path === path);
 
   const base = existingIdx !== -1
     ? projects.recents[existingIdx]
-    : { path, name, type, thumbnail, modifiedAt: now, lastOpenedAt: now, pinned: false };
+    : { path, name, activeEditor, thumbnail, modifiedAt: now, lastOpenedAt: now, pinned: false };
 
   const entry = {
     ...base,
     name,
-    type,
+    activeEditor,
     thumbnail,
     lastOpenedAt: now,
     modifiedAt: touchModified ? now : base.modifiedAt,
@@ -164,20 +164,21 @@ export async function removeRecent(path) {
 
 /**
  * resets relevant editor state and clears the current path so the
- * next save acts as a "save as". Velocity is fully implemented;
- * Kinetic is wired into the type system but their reset
- * logic is a stub until Kinetic save/load lands.
+ * next save acts as a "save as".
  */
-export function newProject(type) {
-  if (type === 'velocity') {
-    Object.assign(editor, deserializeVelocityState(defaultVelocityState()));
-  }
-  if (type === 'kinetic') {
+export function newProject(activeEditor) {
+    const velocityDefaults = defaultVelocityState();
+    velocityDefaults.steps = settings.editor?.velocitySteps ?? velocityDefaults.steps;
+    velocityDefaults.algorithm = settings.editor?.velocityAlgorithm ?? velocityDefaults.algorithm;
+    velocityDefaults.easing = settings.editor?.velocityEasing ?? velocityDefaults.easing;
+    Object.assign(editor, deserializeVelocityState(velocityDefaults));
     resetKineticState();
-  }
+    kinetic.transport.bpm = settings.editor?.kineticBpm ?? kinetic.transport.bpm;
+    kinetic.transport.timeDiv = settings.editor?.kineticTimeDiv ?? kinetic.transport.timeDiv;
+    kinetic.transport.totalDuration = settings.editor?.kineticDuration ?? kinetic.transport.totalDuration;
 
   projects.currentPath      = null;
-  projects.currentType      = type;
+  projects.activeEditor     = activeEditor;
   projects.currentName      = 'Untitled';
   projects.currentCreatedAt = null;
   projects.isDirty          = false;
@@ -206,32 +207,44 @@ async function loadProjectFromPath(path) {
     return false;
   }
 
-  if (data.type === 'velocity') {
-    if (!isValidVelocityState(data.velocity)) {
-      showToast('Project file is missing valid Velocity data.', 'error', 5000);
-      return false;
-    }
-    Object.assign(editor, deserializeVelocityState(data.velocity));
+  if (!isValidVelocityState(data.velocity)) {
+    showToast('Project file is missing valid Velocity data.', 'error', 5000);
+    return false;
   }
 
-  if (data.type === 'kinetic') {
-    if (!isValidKineticState(data.kinetic)) {
-      showToast('Project file is missing valid Kinetic data.', 'error', 5000);
-      return false;
-    }
-    applyKineticProjectState(deserializeKineticState(data.kinetic));
+  if (!isValidKineticState(data.kinetic)) {
+    showToast('Project file is missing valid Kinetic data.', 'error', 5000);
+    return false;
   }
 
-  projects.currentPath      = path;
-  projects.currentType      = data.type;
-  projects.currentName      = data.name ?? basenameFromPath(path);
-  projects.currentCreatedAt = data.createdAt ?? Date.now();
-  projects.isDirty          = false;
+  loadingProject = true;
+  try {
+    Object.assign(
+      editor,
+      deserializeVelocityState(data.velocity)
+    );
+
+    applyKineticProjectState(
+      deserializeKineticState(data.kinetic)
+    );
+
+    projects.currentPath      = path;
+    projects.activeEditor     = data.activeEditor ?? 'velocity';
+    projects.currentName      = data.name ?? basenameFromPath(path);
+    projects.currentCreatedAt = data.createdAt ?? Date.now();
+    projects.isDirty          = false;
+
+    // Allow the reactive load notifications to flush while the guard is
+    // active, then resume normal dirty tracking for subsequent edits.
+    await Promise.resolve();
+  } finally {
+    loadingProject = false;
+  }
 
   await upsertRecent({
     path,
     name:      projects.currentName,
-    type:      data.type,
+    activeEditor:      projects.activeEditor,
     thumbnail: data.thumbnail ?? null,
     touchModified: false,
   });
@@ -239,7 +252,11 @@ async function loadProjectFromPath(path) {
   const dir = dirnameFromPath(path);
   if (dir) await saveSetting('paths.lastProjectDir', dir);
 
-  navigate(data.type === 'kinetic' ? 'kinetic' : 'velocity');
+  navigate(
+    projects.activeEditor === 'kinetic'
+      ? 'kinetic'
+      : 'velocity'
+  );
   showToast(`"${projects.currentName}" loaded`, 'success');
   return true;
 }
@@ -269,19 +286,15 @@ async function writeCurrentProjectTo(path) {
   }
 
   const data = {
-    aerolux:    true,
-    version:    1,
-    type:       projects.currentType,
+    aerolux: true,
+    version: 1,
     name,
-    createdAt:  projects.currentCreatedAt,
+    createdAt: projects.currentCreatedAt,
     modifiedAt: Date.now(),
+    activeEditor: projects.activeEditor ?? 'velocity',
     thumbnail,
-    velocity: (projects.currentType === 'velocity')
-      ? serializeVelocityState(editor)
-      : null,
-    kinetic: (projects.currentType === 'kinetic')
-      ? serializeKineticState(kinetic)
-      : null,
+    velocity: serializeVelocityState(editor),
+    kinetic: serializeKineticState(kinetic),
   };
 
   try {
@@ -298,7 +311,7 @@ async function writeCurrentProjectTo(path) {
   await upsertRecent({
     path,
     name,
-    type:      projects.currentType,
+    activeEditor:      projects.activeEditor,
     thumbnail,
     touchModified: true,
   });
@@ -311,11 +324,18 @@ async function writeCurrentProjectTo(path) {
 }
 
 async function buildThumbnailForCurrentProject() {
-  if (projects.currentType === 'velocity') {
+  if (projects.activeEditor === 'velocity') {
     return buildVelocityThumbnail(editor);
   }
-  if (projects.currentType === 'kinetic') {
+  if (projects.activeEditor === 'kinetic') {
     return buildKineticThumbnail(kinetic);
   }
   return null;
+}
+
+export function setActiveEditor(type) {
+  if (type !== 'velocity' && type !== 'kinetic') {
+    return;
+  }
+  projects.activeEditor = type;
 }

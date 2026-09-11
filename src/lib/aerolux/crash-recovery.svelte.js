@@ -13,7 +13,7 @@
 // call initCrashRecovery() once after loadSettings()/loadRecents(),
 // before mount(). it checks for a stale autosave and exposes
 // recoveryPrompt state for a modal to render, mirroring the
-// unsavedPrompt pattern in menu-bridge.svelte.js.
+// unsavedPrompt pattern in menu.svelte.js.
 
 import { LazyStore } from '@tauri-apps/plugin-store';
 import { editor } from '../../stores/velocity.svelte.js';

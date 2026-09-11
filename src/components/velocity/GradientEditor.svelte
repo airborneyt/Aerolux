@@ -5,7 +5,7 @@
     also handles quick action functions and calculations
 -->
 <script>
-import { onMount } from 'svelte';
+import { onMount, onDestroy } from 'svelte';
 import { editor, gradResult, repeatSteps, sortStopsInPlace } from '../../stores/velocity.svelte.js';
 import { pushUndo, undoState } from '../../stores/velocityActions.svelte.js';
 import { initRepeatPanel } from '../../lib/aerolux/repeat-panel.js';
@@ -13,8 +13,9 @@ import { findNearest, lerpRgb } from '../../lib/aerolux/gradient.js';
 import { toHex, toHSL, hslToRgb63 } from '../../lib/aerolux/palette.js';
 import { showToast } from '../../lib/aerolux/toast.js';
 import { rgbToLab } from '../../lib/aerolux/palette.js';
+import { hapticSnap } from '../../lib/aerolux/haptics.js';
 
-// canUndo/canRedo come from the store directly — no props needed
+// canUndo/canRedo come from the store directly
 const canUndo = $derived(undoState.canUndo);
 const canRedo = $derived(undoState.canRedo);
 
@@ -25,6 +26,8 @@ let { onUndo, onRedo } = $props();
 
 let stopsTrack;
 let dragging = null;
+let lastSnapPoint = null;
+let disposeRepeatPanel = () => {};
 
 // repeat toast ──────────────────────────────────────────────────────
 // fire a toast when anti-repeat is toggled
@@ -41,7 +44,7 @@ $effect(() => {
 
 // auto-fix wiring ───────────────────────────────────────────────────
 onMount(() => {
-    initRepeatPanel({
+    disposeRepeatPanel = initRepeatPanel({
         getPalette:     () => editor.palette,
         getLabCache:    () => {
             // ensure cache is populated
@@ -73,16 +76,31 @@ onMount(() => {
         showToast,
     });
     const onMousemove = (e) => {
-        if (!dragging) return;
-        const pos  = Math.max(0, Math.min(1, (e.clientX - dragging.rect.left) / dragging.rect.width));
-        const stop = editor.stops.find(s => s.id === dragging.id);
-        if (stop) stop.pos = pos;
-        sortStopsInPlace();
-    };
+    if (!dragging) return;
+    const rawPos = Math.max(0, Math.min(1, (e.clientX - dragging.rect.left) / dragging.rect.width));
+    let pos = rawPos;
+    if (e.shiftKey) {
+        const snapStep = 0.05;
+        pos = Math.round(rawPos / snapStep) * snapStep;
+        const snapPoint = Math.round(pos * 100);
+        if (snapPoint !== lastSnapPoint) {
+            hapticSnap();
+            lastSnapPoint = snapPoint;
+        }
+    } else {
+        lastSnapPoint = null;
+    }
+    const stop = editor.stops.find(s => s.id === dragging.id);
+    if (stop) {
+        stop.pos = pos;
+    }
+    sortStopsInPlace();
+};
     const onMouseup = () => { dragging = null; };
     document.addEventListener('mousemove', onMousemove);
     document.addEventListener('mouseup',   onMouseup);
     return () => {
+        disposeRepeatPanel();
         document.removeEventListener('mousemove', onMousemove);
         document.removeEventListener('mouseup',   onMouseup);
     };    
@@ -121,7 +139,10 @@ function onTrackMousedown(e) {
         return;
     }
     const rect = stopsTrack.getBoundingClientRect();
-    const pos  = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    let pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    if (e.shiftKey) {
+        pos = Math.round(pos / 0.05) * 0.05;
+    }
     const sorted = [...editor.stops].sort((a, b) => a.pos - b.pos);
     let s0 = sorted[0], s1 = sorted[sorted.length - 1];
     for (let j = 0; j < sorted.length - 1; j++) {
@@ -190,6 +211,28 @@ function invert() {
     });
     showToast('Colours inverted', 'info', 1500);
 }
+
+function isTyping(e) {
+    const tag = e.target?.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable;
+}
+export async function onKeyDown(e){
+    if (isTyping(e)) return;
+
+    if (e.key.toLowerCase() === 'r') {
+        e.preventDefault();
+        randomise();
+    }  
+
+    if (e.key.toLowerCase() === 'i') {
+        e.preventDefault();
+        invert();
+    }
+}
+
+onMount(async () => window.addEventListener('keydown', onKeyDown));
+onDestroy(() => window.removeEventListener('keydown', onKeyDown));
+
 </script>
 
 <div class="al-card-header">
@@ -271,7 +314,7 @@ function invert() {
         {repeats.map(i => `${i}→${i+1}`).join(', ')}.
         Try fewer steps, more stops, or a different algorithm.
     </span>
-    <button class="al-btn al-btn-ghost al-btn-sm"
+    <button class="al-btn al-btn-sm al-btn-warning"
         id="repeat-autofix-btn"
         style="margin-left:auto;white-space:nowrap"
     >Auto-fix</button>

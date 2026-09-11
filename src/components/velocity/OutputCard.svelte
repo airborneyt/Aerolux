@@ -5,6 +5,7 @@
 -->
 <script>
 import { editor, gradResult } from '../../stores/velocity.svelte.js';
+import { invoke } from '@tauri-apps/api/core';
 import { pushHistory } from '../../stores/velocityActions.svelte.js';
 import { toHex } from '../../lib/aerolux/palette.js';
 import { gradToText, downloadText } from '../../lib/aerolux/utils.js';
@@ -25,6 +26,36 @@ const gr = $derived(gradResult());
 const outText = $derived(
     gr.map(g => `${g.step}, ${g.velocity};`).join('\n')
 );
+
+function isTyping(e) {
+    const tag = e.target?.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable;
+}
+export async function onKeyDown(e) {
+    if (isTyping(e)) return;
+
+    if (e.key.toLowerCase() === 's' && e.shiftKey) {
+        e.preventDefault();
+
+        try {
+            await sendGradient(
+                gr.map(g => g.velocity)
+            );
+            showToast('Gradient sent', 'success', 2500);
+        } catch (error) {
+            console.error('Failed to send gradient:', error);
+            showToast('Could not send gradient', 'error', 2500);
+        }
+    }
+}
+
+export async function sendGradient(stops) {
+    await invoke('send_gradient', {
+        stops
+    });
+}
+
+onMount(async () => window.addEventListener('keydown', onKeyDown));
 
 function confirmSave() {
     if (!presetNameValue.trim()) { showToast('Add a name first', 'warning'); return; }

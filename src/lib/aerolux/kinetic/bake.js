@@ -33,7 +33,7 @@ import { compileGraph } from './compileGraph.js';
 
 const DEFAULT_RESOLUTION       = 9;   // matches simulation node defaults
 const DEFAULT_TICK_STEP        = 4;   // matches midiExport.js's default
-const DEFAULT_TOTAL_DURATION   = 960; // matches KineticTimeline.svelte's default authoring window
+const DEFAULT_TOTAL_DURATION   = 768; // matches KineticTimeline.svelte's default authoring window
 const DEFAULT_TICKS_PER_SECOND = 96;  // matches kinetic.svelte.js's transport ticks
 
 /**
