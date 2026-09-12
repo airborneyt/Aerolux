@@ -2,11 +2,11 @@
 
 ## Bring Your Launchpad to Life.
 
-[logo]
+<img width="3840" height="452" alt="Aerolux Banner" src="https://github.com/user-attachments/assets/1355f74e-f3eb-4f86-96fb-18d17f5470bd" />
 
-Aerolux is the next generation of Launchpad lightshow production.
+### Aerolux is the next generation of Launchpad lightshow production.
 
-[picture]
+<img width="1437" height="591" alt="Aerolux Front Page" src="https://github.com/user-attachments/assets/236e3ca2-2912-4c33-aabb-a6594a8a5c74" />
 
 Traditional lightshow workflows often rely on chain-based production techniques, where effects are built and arranged sequentially. Aerolux takes a different approach. Inspired by node-based workflows found in professional creative software such as DaVinci Resolve and Blender, Aerolux provides a more flexible and powerful way to create, manipulate and combine lightshow effects, giving Launchpad Artists a new way to approach lightshow production from the ground up.
 
@@ -16,7 +16,7 @@ At the heart of Aerolux are two powerful creative environments: **Velocity** and
 
 Velocity is a supercharged gradient builder designed for Launchpad-compatible palettes.
 
-[picture]
+<img width="1437" height="855" alt="Aerolux - Velocity Editor" src="https://github.com/user-attachments/assets/b31abea2-33ea-4b4d-bd17-fd313d7f1733" />
 
 Featuring a suite of mathematical algorithms, Velocity can generate smooth, precise gradients from virtually any combination of colours. With support for multiple colours and accurate transitions across Aerolux's fixed 128-colour palette [1], Velocity gives you precise control over how your Launchpad's colours are constructed and displayed.
 
@@ -34,7 +34,7 @@ With optional support for **Airbot**, Aerolux's locally integrated LLM, Velocity
 
 Kinetic separates your creative workspace from the physical limitations of your Launchpad through an entirely new workflow.
 
-[picture]
+<img width="1437" height="855" alt="Aerolux - Kinetic Editor" src="https://github.com/user-attachments/assets/0f9f4be7-57b1-4faf-abe2-9ae177882b70" />
 
 At its core is the **Canvas engine**, a lightweight visual processing environment designed to make complex, multi-Launchpad lightshows possible without significant performance overhead.
 
@@ -65,6 +65,10 @@ Aerolux gives Launchpad Artists the freedom to spend less time fighting their to
 Velocity and Kinetic are designed to work together. Together, they form a unified environment for creating Launchpad lightshows that are faster to build, easier to experiment with and capable of scaling from a single device to complex multi-Launchpad setups, allowing Launchpad Artists to **keep making great things**.
 
 ---
+
+## Alpha Tester
+
+Interested in being notified on new Alpha releases, and wanting to see more behind the scenes? Join [Airborne's Discord server](https://discord.gg/PfktWrR) to stay up-to-date!
 
 ## Notes
 
